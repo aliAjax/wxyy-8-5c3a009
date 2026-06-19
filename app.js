@@ -10,6 +10,7 @@ const waitBtn = document.getElementById("waitBtn");
 const repairBtn = document.getElementById("repairBtn");
 const restartBtn = document.getElementById("restartBtn");
 const tutorialBtn = document.getElementById("tutorialBtn");
+const dailyBtn = document.getElementById("dailyBtn");
 const tutorialHintEl = document.getElementById("tutorialHint");
 const tutorialStepEl = document.getElementById("tutorialStep");
 const tutorialTitleEl = document.getElementById("tutorialTitle");
@@ -453,8 +454,14 @@ function init() {
       startTutorial();
     }
   });
+  if (dailyBtn) {
+    dailyBtn.addEventListener("click", () => {
+      loadDailyChallenge();
+    });
+  }
   recordHistory("开局");
   render();
+  renderDailyInfo();
 }
 
 function bindControls() {
@@ -528,6 +535,15 @@ function restartLevel() {
     resultEl.classList.add("hidden");
     recordHistory("开局");
     render();
+    return;
+  }
+  if (state.levelIndex === -3 && customLevelSource) {
+    state = freshStateFromLevel(customLevelSource);
+    state.levelIndex = -3;
+    resultEl.classList.add("hidden");
+    recordHistory("开局");
+    render();
+    renderDailyInfo();
     return;
   }
   loadLevel(state.levelIndex);
@@ -723,6 +739,33 @@ function allFixed() {
 
 function win() {
   state.done = true;
+
+  if (state.levelIndex === -3) {
+    const dateKey = getDateKey();
+    const steps = calculateSteps();
+    const existing = getDailyRecord(dateKey);
+    const newRecord = {
+      completed: true,
+      bestSteps: existing && existing.bestSteps ? Math.min(existing.bestSteps, steps) : steps,
+      date: dateKey,
+      completedAt: Date.now()
+    };
+    saveDailyRecord(dateKey, newRecord);
+    renderDailyInfo();
+
+    const bestSteps = newRecord.bestSteps;
+    const isNewRecord = !existing || !existing.bestSteps || steps < existing.bestSteps;
+    const recordMsg = isNewRecord ? `🏆 新纪录！步数：${steps}` : `本次步数：${steps}，最佳：${bestSteps}`;
+    resultEl.innerHTML = `<h2>每日挑战完成！</h2><p>所有展品复位，并从指定出口离开。</p><p>${recordMsg}</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+    resultEl.classList.remove("hidden");
+    addLog("警报没有响，展厅恢复安静。每日挑战完成！");
+    recordHistory("通关成功");
+    const replayBtn = document.getElementById("replayBtn");
+    if (replayBtn) replayBtn.addEventListener("click", () => openReplay(true));
+    render();
+    return;
+  }
+
   resultEl.innerHTML = `<h2>本关修复完成</h2><p>所有展品复位，并从指定出口离开。可以选择下一关继续。</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
   resultEl.classList.remove("hidden");
   addLog("警报没有响，展厅恢复安静。");
@@ -824,6 +867,9 @@ function render() {
   [...levelButtonsEl.children].forEach((button, index) => {
     button.classList.toggle("active", index === state.levelIndex);
   });
+  if (dailyBtn) {
+    dailyBtn.classList.toggle("active", state.levelIndex === -3);
+  }
   waitBtn.disabled = state.done;
   repairBtn.disabled = state.done;
   renderBoard();
@@ -1014,6 +1060,486 @@ function stopReplayPlay() {
     clearInterval(replayState.playInterval);
     replayState.playInterval = null;
   }
+}
+
+// ============== 每日挑战系统 ==============
+
+const BOARD_W = 8;
+const BOARD_H = 7;
+const DAILY_KEY_PREFIX = "museum_daily_challenge_";
+
+function getDateKey(date) {
+  const d = date || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function hashString(str) {
+  let hash = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    hash ^= str.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  return function () {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function createDailyRNG(dateKey) {
+  const seed = hashString(dateKey);
+  return mulberry32(seed);
+}
+
+function randomInt(rng, min, max) {
+  return Math.floor(rng() * (max - min + 1)) + min;
+}
+
+function randomChoice(rng, arr) {
+  return arr[Math.floor(rng() * arr.length)];
+}
+
+function shuffle(rng, arr) {
+  const result = [...arr];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function bfsReachable(walls, doors, start, considerDoorsClosed = true) {
+  const reachable = new Set();
+  const queue = [{ x: start.x, y: start.y }];
+  reachable.add(pointKey(start));
+  const wallSet = new Set(walls);
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      const nkey = `${nx},${ny}`;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      if (reachable.has(nkey)) continue;
+      if (wallSet.has(nkey)) continue;
+      if (considerDoorsClosed) {
+        const hasDoor = doors.some((d) => d.x === nx && d.y === ny);
+        if (hasDoor) continue;
+      }
+      reachable.add(nkey);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return reachable;
+}
+
+function bfsPath(walls, start, end, doorsOpen = []) {
+  const wallSet = new Set(walls);
+  const openDoorSet = new Set(doorsOpen.map((d) => pointKey(d)));
+  const visited = new Map();
+  const queue = [{ x: start.x, y: start.y, path: [{ x: start.x, y: start.y }] }];
+  visited.set(pointKey(start), true);
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    if (cur.x === end.x && cur.y === end.y) {
+      return cur.path;
+    }
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      const nkey = `${nx},${ny}`;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      if (visited.has(nkey)) continue;
+      if (wallSet.has(nkey)) continue;
+      visited.set(nkey, true);
+      queue.push({ x: nx, y: ny, path: [...cur.path, { x: nx, y: ny }] });
+    }
+  }
+  return null;
+}
+
+function generateDailyLevel(dateKey) {
+  const rng = createDailyRNG(dateKey);
+  let attempts = 0;
+
+  while (attempts < 50) {
+    attempts++;
+    try {
+      const level = tryGenerateLevel(rng, dateKey);
+      if (level) return level;
+    } catch (e) {
+    }
+  }
+
+  return fallbackLevel(dateKey);
+}
+
+function fallbackLevel(dateKey) {
+  return {
+    name: `每日挑战 ${dateKey}`,
+    walls: ["3,1", "3,2", "3,4", "3,5", "5,2", "5,3", "5,4"],
+    doors: [{ x: 3, y: 3, open: false }],
+    keys: [{ x: 1, y: 0, taken: false }],
+    exhibits: [
+      { x: 6, y: 1, fixed: false },
+      { x: 6, y: 5, fixed: false }
+    ],
+    player: { x: 0, y: 6 },
+    guards: [
+      { path: [{ x: 5, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0 },
+      { path: [{ x: 1, y: 3 }, { x: 2, y: 3 }, { x: 2, y: 6 }, { x: 1, y: 6 }], step: 0 }
+    ],
+    exit: { x: 7, y: 0 }
+  };
+}
+
+function tryGenerateLevel(rng, dateKey) {
+  const allCells = [];
+  for (let y = 0; y < BOARD_H; y++) {
+    for (let x = 0; x < BOARD_W; x++) {
+      allCells.push({ x, y });
+    }
+  }
+
+  const corners = [
+    { x: 0, y: 0 },
+    { x: BOARD_W - 1, y: 0 },
+    { x: 0, y: BOARD_H - 1 },
+    { x: BOARD_W - 1, y: BOARD_H - 1 }
+  ];
+
+  const edgeCells = [];
+  for (let x = 0; x < BOARD_W; x++) {
+    edgeCells.push({ x, y: 0 });
+    edgeCells.push({ x, y: BOARD_H - 1 });
+  }
+  for (let y = 1; y < BOARD_H - 1; y++) {
+    edgeCells.push({ x: 0, y });
+    edgeCells.push({ x: BOARD_W - 1, y });
+  }
+
+  const shuffledCorners = shuffle(rng, corners);
+  const player = { ...shuffledCorners[0] };
+  const exit = { ...shuffledCorners[1] };
+
+  const manhattan = Math.abs(player.x - exit.x) + Math.abs(player.y - exit.y);
+  if (manhattan < 6) return null;
+
+  const walls = [];
+  const doors = [];
+  const keys = [];
+  const exhibits = [];
+
+  const reserved = new Set();
+  reserved.add(pointKey(player));
+  reserved.add(pointKey(exit));
+
+  let mainPath = bfsPath(walls, player, exit);
+  if (!mainPath) return null;
+
+  const pathSet = new Set(mainPath.map((p) => pointKey(p)));
+
+  const numWalls = randomInt(rng, 6, 10);
+  let wallAttempts = 0;
+  while (walls.length < numWalls && wallAttempts < 200) {
+    wallAttempts++;
+    const cell = randomChoice(rng, allCells);
+    const ckey = pointKey(cell);
+    if (reserved.has(ckey)) continue;
+    if (walls.includes(ckey)) continue;
+    if (pathSet.has(ckey)) continue;
+
+    const testWalls = [...walls, ckey];
+    const newPath = bfsPath(testWalls, player, exit);
+    if (!newPath) continue;
+
+    walls.push(ckey);
+  }
+
+  mainPath = bfsPath(walls, player, exit);
+  if (!mainPath) return null;
+  for (const p of mainPath) reserved.add(pointKey(p));
+
+  const useDoor = rng() < 0.8;
+  if (useDoor && mainPath.length >= 6) {
+    const doorIdx = randomInt(rng, 2, mainPath.length - 3);
+    const doorPos = mainPath[doorIdx];
+    doors.push({ x: doorPos.x, y: doorPos.y, open: false });
+    reserved.add(pointKey(doorPos));
+
+    const beforeDoor = mainPath.slice(0, doorIdx);
+    const keyCandidates = [];
+    for (const p of allCells) {
+      const pk = pointKey(p);
+      if (reserved.has(pk)) continue;
+      if (walls.includes(pk)) continue;
+      const testWalls = [...walls];
+      const testDoors = doors.map((d) => ({ ...d }));
+      const reachable = bfsReachable(testWalls, testDoors, player, true);
+      if (reachable.has(pk)) {
+        keyCandidates.push(p);
+      }
+    }
+    if (keyCandidates.length > 0) {
+      const key = randomChoice(rng, keyCandidates);
+      keys.push({ x: key.x, y: key.y, taken: false });
+      reserved.add(pointKey(key));
+    } else {
+      doors.pop();
+    }
+  }
+
+  const numExhibits = randomInt(rng, 1, 3);
+  const exhibitCandidates = [];
+  for (const p of allCells) {
+    const pk = pointKey(p);
+    if (reserved.has(pk)) continue;
+    if (walls.includes(pk)) continue;
+    if (doors.some((d) => d.x === p.x && d.y === p.y)) continue;
+
+    let adj = 0;
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = p.x + dx;
+      const ny = p.y + dy;
+      if (nx >= 0 && nx < BOARD_W && ny >= 0 && ny < BOARD_H) {
+        const nkey = `${nx},${ny}`;
+        if (!walls.includes(nkey)) adj++;
+      }
+    }
+    if (adj >= 2) {
+      const testWalls = [...walls];
+      const testDoors = doors.map((d) => ({ ...d }));
+      const reachable = bfsReachable(testWalls, testDoors, player, false);
+      if (reachable.has(pk)) {
+        exhibitCandidates.push(p);
+      }
+    }
+  }
+
+  const shuffledExhibits = shuffle(rng, exhibitCandidates);
+  for (let i = 0; i < Math.min(numExhibits, shuffledExhibits.length); i++) {
+    exhibits.push({ x: shuffledExhibits[i].x, y: shuffledExhibits[i].y, fixed: false });
+    reserved.add(pointKey(shuffledExhibits[i]));
+  }
+
+  if (exhibits.length === 0) {
+    for (const p of mainPath.slice(1, -1)) {
+      if (!walls.includes(pointKey(p)) && !doors.some((d) => d.x === p.x && d.y === p.y)) {
+        exhibits.push({ x: p.x, y: p.y, fixed: false });
+        reserved.add(pointKey(p));
+        break;
+      }
+    }
+  }
+  if (exhibits.length === 0) return null;
+
+  const guards = generateGuards(rng, walls, doors, player, exit, exhibits, mainPath, reserved);
+
+  const allReachable = bfsReachable(walls, doors, player, false);
+  for (const ex of exhibits) {
+    if (!allReachable.has(pointKey(ex))) return null;
+  }
+  for (const k of keys) {
+    if (!allReachable.has(pointKey(k))) return null;
+  }
+  if (!allReachable.has(pointKey(exit))) return null;
+
+  for (const g of guards) {
+    for (const pos of g.path) {
+      if (samePoint(pos, player) && g.step === 0) return null;
+    }
+  }
+
+  return {
+    name: `每日挑战 ${dateKey}`,
+    walls,
+    doors,
+    keys,
+    exhibits,
+    player,
+    guards,
+    exit
+  };
+}
+
+function generateGuards(rng, walls, doors, player, exit, exhibits, mainPath, reserved) {
+  const guards = [];
+  const numGuards = randomInt(rng, 1, 2);
+  const wallSet = new Set(walls);
+  const doorSet = new Set(doors.map((d) => pointKey(d)));
+  const pathSet = new Set(mainPath.map((p) => pointKey(p)));
+
+  for (let g = 0; g < numGuards; g++) {
+    let guardAttempts = 0;
+    while (guardAttempts < 100) {
+      guardAttempts++;
+
+      const candidateCells = [];
+      for (let y = 0; y < BOARD_H; y++) {
+        for (let x = 0; x < BOARD_W; x++) {
+          const ck = `${x},${y}`;
+          if (wallSet.has(ck)) continue;
+          if (doorSet.has(ck)) continue;
+          if (reserved.has(ck)) continue;
+          if (samePoint({ x, y }, player)) continue;
+          if (samePoint({ x, y }, exit)) continue;
+          if (pathSet.has(ck) && rng() > 0.3) continue;
+          candidateCells.push({ x, y });
+        }
+      }
+
+      if (candidateCells.length === 0) break;
+      const start = randomChoice(rng, candidateCells);
+
+      const pathLength = randomInt(rng, 3, 5);
+      const path = [{ ...start }];
+      let current = { ...start };
+      let stepAttempts = 0;
+
+      while (path.length < pathLength && stepAttempts < 50) {
+        stepAttempts++;
+        const dirs = shuffle(rng, [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1]
+        ]);
+        let moved = false;
+
+        for (const [dx, dy] of dirs) {
+          const nx = current.x + dx;
+          const ny = current.y + dy;
+          const nkey = `${nx},${ny}`;
+          if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+          if (wallSet.has(nkey)) continue;
+          if (doorSet.has(nkey)) continue;
+          if (samePoint({ x: nx, y: ny }, player)) continue;
+          if (path.some((p) => p.x === nx && p.y === ny)) continue;
+
+          path.push({ x: nx, y: ny });
+          current = { x: nx, y: ny };
+          moved = true;
+          break;
+        }
+        if (!moved) break;
+      }
+
+      if (path.length >= 3) {
+        const startDist = Math.abs(path[0].x - player.x) + Math.abs(path[0].y - player.y);
+        if (startDist >= 3) {
+          guards.push({ path, step: 0 });
+          for (const p of path) reserved.add(pointKey(p));
+          break;
+        }
+      }
+    }
+  }
+
+  return guards;
+}
+
+function getDailyRecord(dateKey) {
+  try {
+    const raw = localStorage.getItem(DAILY_KEY_PREFIX + dateKey);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+
+function saveDailyRecord(dateKey, record) {
+  try {
+    localStorage.setItem(DAILY_KEY_PREFIX + dateKey, JSON.stringify(record));
+  } catch (e) {}
+}
+
+function loadDailyChallenge() {
+  const dateKey = getDateKey();
+  const level = generateDailyLevel(dateKey);
+  customLevelSource = JSON.parse(JSON.stringify(level));
+  state = freshStateFromLevel(level);
+  state.levelIndex = -3;
+  resultEl.classList.add("hidden");
+  tutorialState.active = false;
+  tutorialHintEl.classList.add("hidden");
+  tutorialBtn.classList.remove("active");
+  [...levelButtonsEl.children].forEach((button) => {
+    button.classList.remove("active");
+  });
+  dailyBtn.classList.add("active");
+  recordHistory("开局");
+  render();
+  renderDailyInfo();
+}
+
+function renderDailyInfo() {
+  const dateKey = getDateKey();
+  const record = getDailyRecord(dateKey);
+  const infoEl = document.getElementById("dailyInfo");
+  if (!infoEl) return;
+
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+
+  let statusHtml = "";
+  if (record) {
+    if (record.completed) {
+      statusHtml = `
+        <span class="daily-status completed">✅ 已完成</span>
+        <span>最佳步数<strong>${record.bestSteps}</strong></span>
+      `;
+    } else {
+      statusHtml = `
+        <span class="daily-status pending">⏳ 挑战中</span>
+        <span>上次步数<strong>${record.bestSteps || "-"}</strong></span>
+      `;
+    }
+  } else {
+    statusHtml = `<span class="daily-status new">🎯 新挑战</span>`;
+  }
+
+  infoEl.innerHTML = `
+    <div class="daily-date">挑战日期：${dateStr}</div>
+    <div class="daily-status-line">${statusHtml}</div>
+  `;
+}
+
+function calculateSteps() {
+  let steps = 0;
+  for (const snap of state.history) {
+    const a = snap.action || "";
+    if (a.includes("移动") || a.includes("修复展柜") || a.includes("等待回合") || a.includes("开门")) {
+      steps++;
+    }
+  }
+  return Math.max(1, steps);
 }
 
 init();

@@ -706,3 +706,95 @@ h2 {
     stroke-dashoffset: -20;
   }
 }
+
+.daily-toggle {
+  background: #e67e22;
+  color: #fff;
+}
+
+.daily-toggle.active {
+  background: #f39c12;
+  color: #201b20;
+  box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.35);
+}
+
+.daily-info {
+  margin-bottom: 16px;
+  padding: 16px 20px;
+  border: 2px solid #e67e22;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3c3642 0%, #2c2730 100%);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.daily-info::before {
+  content: "🏛️";
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  font-size: 28px;
+  opacity: 0.15;
+}
+
+.daily-date {
+  font-size: 16px;
+  font-weight: bold;
+  color: #e67e22;
+}
+
+.daily-status-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.daily-status-line span {
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: #201b20;
+  color: #cec4ba;
+  font-size: 14px;
+}
+
+.daily-status-line strong {
+  display: inline;
+  color: #d7bd77;
+  font-size: 16px;
+  margin-left: 4px;
+}
+
+.daily-status {
+  font-weight: bold;
+}
+
+.daily-status.completed {
+  background: rgba(79, 127, 106, 0.3) !important;
+  color: #8fd9b5 !important;
+  border: 1px solid #4f7f6a;
+}
+
+.daily-status.pending {
+  background: rgba(215, 189, 119, 0.2) !important;
+  color: #d7bd77 !important;
+  border: 1px solid #d7bd77;
+}
+
+.daily-status.new {
+  background: rgba(230, 126, 34, 0.2) !important;
+  color: #f39c12 !important;
+  border: 1px solid #e67e22;
+}
+
+@media (max-width: 600px) {
+  .daily-info {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
