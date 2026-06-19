@@ -402,9 +402,11 @@ function snapshotState(action) {
       guards: state.level.guards.map(g => ({
         path: g.path.map(p => ({ ...p })),
         step: g.step,
+        pos: { ...g.pos },
         behavior: g.behavior,
         direction: g.direction,
         originalPath: g.originalPath.map(p => ({ ...p })),
+        originalStep: g.originalStep,
         state: g.state,
         investigateTarget: g.investigateTarget ? { ...g.investigateTarget } : null,
         investigateTimer: g.investigateTimer,
@@ -458,21 +460,27 @@ function freshState(index) {
 }
 
 function initializeGuards(guards) {
-  return guards.map((guard, index) => ({
-    path: guard.path || [],
-    step: guard.step || 0,
-    behavior: guard.behavior || GUARD_BEHAVIOR.FIXED,
-    direction: guard.direction || 1,
-    originalPath: guard.path ? [...guard.path] : [],
-    state: "patrol",
-    investigateTarget: null,
-    investigateTimer: 0,
-    traceTarget: null,
-    tracePath: [],
-    alertLevel: 0,
-    hearingRange: guard.hearingRange || 4,
-    id: index
-  }));
+  return guards.map((guard, index) => {
+    const path = guard.path || [];
+    const step = guard.step || 0;
+    return {
+      path: path.map(p => ({ ...p })),
+      step: step,
+      pos: path[step] ? { ...path[step] } : { x: 0, y: 0 },
+      behavior: guard.behavior || GUARD_BEHAVIOR.FIXED,
+      direction: guard.direction || 1,
+      originalPath: path.map(p => ({ ...p })),
+      originalStep: step,
+      state: "patrol",
+      investigateTarget: null,
+      investigateTimer: 0,
+      traceTarget: null,
+      tracePath: [],
+      alertLevel: 0,
+      hearingRange: guard.hearingRange || 4,
+      id: index
+    };
+  });
 }
 
 function freshStateFromLevel(levelData) {
@@ -870,7 +878,7 @@ function emitSound(source, loudness, position) {
 
   state.level.guards.forEach((guard) => {
     if (guard.state === "investigate" || guard.state === "trace") return;
-    const distance = Math.abs(guard.path[guard.step].x - position.x) + Math.abs(guard.path[guard.step].y - position.y);
+    const distance = Math.abs(guard.pos.x - position.x) + Math.abs(guard.pos.y - position.y);
     if (distance <= guard.hearingRange + loudness) {
       const alertIncrease = Math.max(1, Math.ceil((guard.hearingRange + loudness - distance) / 2));
       guard.alertLevel = Math.min(3, guard.alertLevel + alertIncrease);
@@ -915,15 +923,12 @@ function recordOpenedDoor(door) {
 }
 
 function getGuardCurrentPosition(guard) {
-  if (guard.state === "investigate" && guard.investigateTarget) {
-    return guard.path[guard.step];
-  }
-  return guard.path[guard.step];
+  return guard.pos;
 }
 
 function getGuardNextDirection(guard) {
   if (guard.state === "investigate" && guard.investigateTarget) {
-    const current = guard.path[guard.step];
+    const current = guard.pos;
     const target = guard.investigateTarget;
     const dx = Math.sign(target.x - current.x);
     const dy = Math.sign(target.y - current.y);
@@ -934,7 +939,7 @@ function getGuardNextDirection(guard) {
   }
 
   if (guard.state === "trace" && guard.tracePath.length > 0) {
-    const current = guard.path[guard.step];
+    const current = guard.pos;
     const target = guard.tracePath[0];
     const dx = Math.sign(target.x - current.x);
     const dy = Math.sign(target.y - current.y);
@@ -963,14 +968,30 @@ function getGuardNextDirection(guard) {
   };
 }
 
+function findNearestPathStep(guard, pos) {
+  let bestStep = guard.originalStep;
+  let bestDist = Infinity;
+  for (let i = 0; i < guard.path.length; i++) {
+    const p = guard.path[i];
+    const dist = Math.abs(p.x - pos.x) + Math.abs(p.y - pos.y);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestStep = i;
+    }
+  }
+  return bestStep;
+}
+
 function moveGuard(guard) {
   if (guard.state === "investigate") {
     moveGuardTowardsTarget(guard, guard.investigateTarget);
     guard.investigateTimer -= 1;
-    if (guard.investigateTimer <= 0 || samePoint(guard.path[guard.step], guard.investigateTarget)) {
+    if (guard.investigateTimer <= 0 || samePoint(guard.pos, guard.investigateTarget)) {
       guard.state = "patrol";
       guard.investigateTarget = null;
       guard.alertLevel = Math.max(0, guard.alertLevel - 1);
+      guard.step = findNearestPathStep(guard, guard.pos);
+      guard.pos = { ...guard.path[guard.step] };
       addLog("巡逻员没有发现异常，继续巡逻。");
     }
     return;
@@ -980,13 +1001,15 @@ function moveGuard(guard) {
     if (guard.tracePath.length > 0) {
       const target = guard.tracePath[0];
       moveGuardTowardsTarget(guard, target);
-      if (samePoint(guard.path[guard.step], target)) {
+      if (samePoint(guard.pos, target)) {
         guard.tracePath.shift();
       }
     }
     if (guard.tracePath.length === 0) {
       guard.state = "patrol";
       guard.traceTarget = null;
+      guard.step = findNearestPathStep(guard, guard.pos);
+      guard.pos = { ...guard.path[guard.step] };
       addLog("巡逻员检查了可疑的门，继续巡逻。");
     }
     return;
@@ -1002,12 +1025,13 @@ function moveGuard(guard) {
   } else {
     guard.step = (guard.step + 1) % guard.path.length;
   }
+  guard.pos = { ...guard.path[guard.step] };
 
   checkForDoorTraces(guard);
 }
 
 function moveGuardTowardsTarget(guard, target) {
-  const current = guard.path[guard.step];
+  const current = guard.pos;
   const dx = Math.sign(target.x - current.x);
   const dy = Math.sign(target.y - current.y);
 
@@ -1023,7 +1047,7 @@ function moveGuardTowardsTarget(guard, target) {
   }
 
   if (!isWall({ x: newX, y: newY })) {
-    guard.path[guard.step] = { x: newX, y: newY };
+    guard.pos = { x: newX, y: newY };
   }
 }
 
@@ -1031,7 +1055,7 @@ function checkForDoorTraces(guard) {
   if (guard.behavior !== GUARD_BEHAVIOR.TRACE) return;
   if (guard.state === "investigate" || guard.state === "trace") return;
 
-  const currentPos = guard.path[guard.step];
+  const currentPos = guard.pos;
   for (const openedDoor of state.level.openedDoors) {
     const distance = Math.abs(currentPos.x - openedDoor.x) + Math.abs(currentPos.y - openedDoor.y);
     if (distance <= 2) {
@@ -1549,11 +1573,37 @@ function visionSetForSnapshot(snapshot) {
   const screenSet = new Set(sm.screens.map(s => pointKey(s)));
   const maxRange = snapshot.visionReduced ? 1 : 2;
   snapshot.level.guards.forEach((guard) => {
-    const pos = guard.path[guard.step];
+    const pos = guard.pos;
     set.add(pointKey(pos));
-    const next = guard.path[(guard.step + 1) % guard.path.length];
-    const dx = Math.sign(next.x - pos.x);
-    const dy = Math.sign(next.y - pos.y);
+    let dx = 0, dy = 0;
+    if (guard.state === "investigate" && guard.investigateTarget) {
+      dx = Math.sign(guard.investigateTarget.x - pos.x);
+      dy = Math.sign(guard.investigateTarget.y - pos.y);
+      if (Math.abs(guard.investigateTarget.x - pos.x) >= Math.abs(guard.investigateTarget.y - pos.y)) {
+        dy = 0;
+      } else {
+        dx = 0;
+      }
+    } else if (guard.state === "trace" && guard.tracePath.length > 0) {
+      const target = guard.tracePath[0];
+      dx = Math.sign(target.x - pos.x);
+      dy = Math.sign(target.y - pos.y);
+    } else if (guard.behavior === GUARD_BEHAVIOR.PATROL) {
+      let nextStep = guard.step + guard.direction;
+      if (nextStep >= guard.path.length || nextStep < 0) {
+        nextStep = guard.step - guard.direction;
+      }
+      if (guard.path[nextStep]) {
+        dx = Math.sign(guard.path[nextStep].x - pos.x);
+        dy = Math.sign(guard.path[nextStep].y - pos.y);
+      }
+    } else {
+      const next = guard.path[(guard.step + 1) % guard.path.length];
+      if (next) {
+        dx = Math.sign(next.x - pos.x);
+        dy = Math.sign(next.y - pos.y);
+      }
+    }
     for (let i = 1; i <= maxRange; i += 1) {
       const point = { x: pos.x + dx * i, y: pos.y + dy * i };
       if (!inside(point) || isWallForSnapshot(snapshot, point) || screenSet.has(pointKey(point))) break;
@@ -1633,7 +1683,13 @@ function activatePressurePlates() {
       plate.triggered = true;
       plate.targetDoors.forEach(td => {
         const door = state.level.doors.find(d => samePoint(d, td));
-        if (door) door.open = !door.open;
+        if (door) {
+          const wasClosed = !door.open;
+          door.open = !door.open;
+          if (wasClosed && door.open) {
+            recordOpenedDoor(door);
+          }
+        }
       });
       addLog("踩下压力板，远处的门发生了变化。");
     } else if (!playerOn && plate.triggered) {
@@ -1693,7 +1749,7 @@ function render() {
 
 function renderBoard() {
   const guards = state.level.guards.map((guard) => ({
-    pos: guard.path[guard.step],
+    pos: { ...guard.pos },
     alertLevel: guard.alertLevel,
     state: guard.state,
     investigateTarget: guard.investigateTarget,
@@ -1870,7 +1926,7 @@ function goToReplayStep(stepIndex) {
 function renderReplayStep() {
   const snapshot = replayState.history[replayState.currentStep];
   replayActionEl.textContent = `第 ${replayState.currentStep + 1} 步 · ${snapshot.action}`;
-  const guards = snapshot.level.guards.map((guard) => guard.path[guard.step]);
+  const guards = snapshot.level.guards.map((guard) => guard.pos);
   const vision = visionSetForSnapshot(snapshot);
   replayBoardEl.innerHTML = "";
   for (let y = 0; y < 7; y += 1) {
