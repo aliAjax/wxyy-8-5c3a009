@@ -509,19 +509,15 @@ function saveLevelToStorage() {
     renderDiagnosisResult(result);
     solvable = result.solvable;
     if (!solvable) {
-      if (!confirm("当前关卡不可通关，是否仍要保存？\n\n问题：" + result.issues.slice(0, 2).join("；"))) {
-        return;
-      }
+      const issueSummary = result.issues.slice(0, 2).join("；") || "找不到合法通关路线";
+      showWarning("关卡不可通关，无法保存：" + issueSummary);
+      return;
     }
   }
 
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(levelData));
-    if (solvable) {
-      showWarning("关卡已保存到本地 ✓");
-    } else {
-      showWarning("关卡已保存（不可通关）");
-    }
+    showWarning("关卡已保存到本地 ✓");
   } catch (e) {
     showWarning("保存失败");
   }
