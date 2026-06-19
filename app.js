@@ -2477,6 +2477,12 @@ function resetAchievements() {
   saveAchievements();
 }
 
+function refreshAchievementsIfOpen() {
+  if (!achievementEl.classList.contains("hidden")) {
+    renderAchievements();
+  }
+}
+
 function calculateGameStats() {
   let turns = 0;
   let actions = 0;
@@ -2548,6 +2554,7 @@ function updateStatsOnWin(levelIndex) {
 
   checkAchievements();
   saveAchievements();
+  refreshAchievementsIfOpen();
 }
 
 function updateStatsOnFail(levelIndex, reason) {
@@ -2569,6 +2576,7 @@ function updateStatsOnFail(levelIndex, reason) {
   }
 
   saveAchievements();
+  refreshAchievementsIfOpen();
 }
 
 function checkAchievements() {
