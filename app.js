@@ -112,6 +112,123 @@ const levels = [
   }
 ];
 
+const chapters = [
+  {
+    id: 0,
+    name: "初入展厅",
+    description: "初次夜巡，学习基本潜行与修复技巧",
+    levelIndices: [0, 1]
+  },
+  {
+    id: 1,
+    name: "深入探索",
+    description: "更复杂的巡逻路线与机关谜题",
+    levelIndices: [2, 3]
+  },
+  {
+    id: 2,
+    name: "终极挑战",
+    description: "最终修复任务，考验所有技能",
+    levelIndices: [4]
+  }
+];
+
+const levelDescriptions = [
+  { brief: "简单展厅，一个展柜需要修复，小心巡逻员视线", optimalActions: 12 },
+  { brief: "需要找到钥匙开门，才能到达展柜", optimalActions: 15 },
+  { brief: "两个展柜与双巡逻员的协调挑战", optimalActions: 22 },
+  { brief: "利用压力板开门与熄灯开关缩短巡逻视野", optimalActions: 16 },
+  { brief: "两个展柜、多个门锁与密集巡逻的终极考验", optimalActions: 28 }
+];
+
+const CHAPTER_STAR_KEY = "museum_chapter_stars";
+
+function loadChapterStars() {
+  try {
+    const raw = localStorage.getItem(CHAPTER_STAR_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return { levels: {} };
+}
+
+function saveChapterStars(data) {
+  try {
+    localStorage.setItem(CHAPTER_STAR_KEY, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function getLevelStarData(levelIndex) {
+  const data = loadChapterStars();
+  return data.levels[String(levelIndex)] || { bestStars: 0, completed: false };
+}
+
+function updateLevelStarData(levelIndex, stars) {
+  const data = loadChapterStars();
+  const key = String(levelIndex);
+  const existing = data.levels[key];
+  if (!existing || stars > existing.bestStars) {
+    data.levels[key] = { bestStars: stars, completed: true };
+  } else if (!existing.completed) {
+    data.levels[key].completed = true;
+  }
+  saveChapterStars(data);
+}
+
+function calculateStars(levelIndex, currentActions, hasRetried, hintsUsedTotal) {
+  const desc = levelDescriptions[levelIndex];
+  if (!desc) return 1;
+  if (!hasRetried && hintsUsedTotal === 0 && currentActions <= Math.ceil(desc.optimalActions * 1.2)) return 3;
+  if (!hasRetried && hintsUsedTotal <= 1) return 2;
+  if (hasRetried && hintsUsedTotal === 0 && currentActions <= Math.ceil(desc.optimalActions * 1.3)) return 2;
+  return 1;
+}
+
+function isChapterUnlocked(chapterId) {
+  if (chapterId === 0) return true;
+  const prevChapter = chapters[chapterId - 1];
+  if (!prevChapter) return false;
+  const data = loadChapterStars();
+  return prevChapter.levelIndices.every(idx => {
+    const ls = data.levels[String(idx)];
+    return ls && ls.completed;
+  });
+}
+
+function isLevelUnlocked(levelIndex) {
+  for (const ch of chapters) {
+    const pos = ch.levelIndices.indexOf(levelIndex);
+    if (pos === -1) continue;
+    if (!isChapterUnlocked(ch.id)) return false;
+    if (pos === 0) return true;
+    const prevLevelIndex = ch.levelIndices[pos - 1];
+    const data = loadChapterStars();
+    const prevData = data.levels[String(prevLevelIndex)];
+    return prevData && prevData.completed;
+  }
+  return true;
+}
+
+function getNextLevelIndex(currentIndex) {
+  for (const ch of chapters) {
+    const pos = ch.levelIndices.indexOf(currentIndex);
+    if (pos === -1) continue;
+    if (pos < ch.levelIndices.length - 1) return ch.levelIndices[pos + 1];
+    const nextChapter = chapters[ch.id + 1];
+    if (nextChapter && isChapterUnlocked(nextChapter.id)) return nextChapter.levelIndices[0];
+    return -1;
+  }
+  if (currentIndex + 1 < levels.length) return currentIndex + 1;
+  return -1;
+}
+
+function renderStars(count) {
+  let s = "";
+  for (let i = 0; i < 3; i++) {
+    s += i < count ? "★" : "☆";
+  }
+  return s;
+}
+
 const tutorialLevel = {
   name: "教学",
   walls: ["4,2", "4,3", "4,4", "4,5", "4,6"],
@@ -218,6 +335,18 @@ let replayState = {
   playInterval: null,
   playSpeed: 1000
 };
+
+let gameplayMetrics = {
+  hasRetried: false,
+  hintsUsedTotal: 0,
+  currentActions: 0
+};
+
+function resetGameplayMetrics() {
+  gameplayMetrics.hasRetried = false;
+  gameplayMetrics.hintsUsedTotal = 0;
+  gameplayMetrics.currentActions = 0;
+}
 
 function cloneLevel(index) {
   return JSON.parse(JSON.stringify(levels[index]));
@@ -516,12 +645,119 @@ function restartTutorialStep(reason = "manual") {
   render();
 }
 
+const chapterPanelEl = document.getElementById("chapterPanel");
+const chapterContentEl = document.getElementById("chapterContent");
+const chapterBtn = document.getElementById("chapterBtn");
+const chapterCloseBtn = document.getElementById("chapterCloseBtn");
+
+function renderChapterView() {
+  if (chapterPanelEl.classList.contains("hidden")) return;
+  chapterContentEl.innerHTML = "";
+
+  chapters.forEach(ch => {
+    const unlocked = isChapterUnlocked(ch.id);
+    const card = document.createElement("div");
+    card.className = `chapter-card ${unlocked ? "unlocked" : "locked"}`;
+
+    const completedCount = ch.levelIndices.filter(idx => {
+      const d = getLevelStarData(idx);
+      return d.completed;
+    }).length;
+    const totalStars = ch.levelIndices.reduce((sum, idx) => sum + getLevelStarData(idx).bestStars, 0);
+    const maxStars = ch.levelIndices.length * 3;
+
+    let statusText = "";
+    if (!unlocked) {
+      statusText = "🔒 未解锁";
+    } else if (completedCount === ch.levelIndices.length) {
+      statusText = `✅ 已完成 ★${totalStars}/${maxStars}`;
+    } else {
+      statusText = `⏳ 进度 ${completedCount}/${ch.levelIndices.length}`;
+    }
+
+    const headerDiv = document.createElement("div");
+    headerDiv.className = "chapter-card-header";
+    headerDiv.innerHTML = `
+      <div>
+        <div class="chapter-card-title">第${ch.id + 1}章：${ch.name}</div>
+        <div class="chapter-card-desc">${ch.description}</div>
+      </div>
+      <div class="chapter-card-status">${statusText}</div>
+    `;
+    card.appendChild(headerDiv);
+
+    const levelsDiv = document.createElement("div");
+    levelsDiv.className = "chapter-levels";
+
+    ch.levelIndices.forEach(idx => {
+      const levelUnlocked = isLevelUnlocked(idx);
+      const starData = getLevelStarData(idx);
+      const desc = levelDescriptions[idx];
+      const levelCard = document.createElement("div");
+      levelCard.className = `chapter-level-card ${levelUnlocked ? "unlocked" : "locked"} ${state.levelIndex === idx ? "active-level" : ""}`;
+
+      let starsHtml = "";
+      if (levelUnlocked) {
+        for (let i = 0; i < 3; i++) {
+          if (i < starData.bestStars) {
+            starsHtml += "★";
+          } else {
+            starsHtml += '<span class="star-empty">☆</span>';
+          }
+        }
+      }
+
+      levelCard.innerHTML = `
+        <div class="chapter-level-name">关卡${levels[idx].name}</div>
+        <div class="chapter-level-brief">${desc ? desc.brief : ""}</div>
+        ${levelUnlocked
+          ? `<div class="chapter-level-stars">${starsHtml}</div>`
+          : `<div class="chapter-level-lock">🔒 需通关上一关</div>`
+        }
+      `;
+
+      if (levelUnlocked) {
+        levelCard.addEventListener("click", () => {
+          loadLevel(idx);
+          renderChapterView();
+        });
+      }
+
+      levelsDiv.appendChild(levelCard);
+    });
+
+    card.appendChild(levelsDiv);
+    chapterContentEl.appendChild(card);
+  });
+}
+
+function openChapterPanel() {
+  chapterPanelEl.classList.remove("hidden");
+  chapterBtn.classList.add("active");
+  renderChapterView();
+}
+
+function closeChapterPanel() {
+  chapterPanelEl.classList.add("hidden");
+  chapterBtn.classList.remove("active");
+}
+
 function init() {
   renderLevelButtons();
   state = freshState(0);
   bindControls();
   bindReplayControls();
   bindAchievementControls();
+  chapterBtn.addEventListener("click", () => {
+    if (chapterPanelEl.classList.contains("hidden")) {
+      openChapterPanel();
+    } else {
+      closeChapterPanel();
+    }
+  });
+  if (chapterCloseBtn) {
+    chapterCloseBtn.addEventListener("click", closeChapterPanel);
+  }
   tutorialBtn.addEventListener("click", () => {
     if (tutorialState.active) {
       exitTutorial();
@@ -584,19 +820,32 @@ function renderLevelButtons() {
   levels.forEach((level, index) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = `关卡${level.name}`;
-    button.addEventListener("click", () => loadLevel(index));
+    const unlocked = isLevelUnlocked(index);
+    const starData = getLevelStarData(index);
+    const starStr = starData.bestStars > 0 ? ` ${renderStars(starData.bestStars)}` : "";
+    const lockStr = unlocked ? "" : " 🔒";
+    button.textContent = `关卡${level.name}${starStr}${lockStr}`;
+    button.disabled = !unlocked;
+    if (!unlocked) {
+      button.title = "需先通关上一关卡";
+    }
+    button.addEventListener("click", () => {
+      if (!unlocked) return;
+      loadLevel(index);
+    });
     levelButtonsEl.appendChild(button);
   });
 }
 
-function loadLevel(index) {
+function loadLevel(index, preserveMetrics) {
   customLevelSource = null;
   state = freshState(index);
   resultEl.classList.add("hidden");
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
+  if (!preserveMetrics) resetGameplayMetrics();
+  else gameplayMetrics.currentActions = 0;
   recordHistory("开局");
   render();
 }
@@ -606,8 +855,10 @@ function restartLevel() {
     restartTutorialStep();
     return;
   }
+  gameplayMetrics.hasRetried = true;
   if (state.levelIndex === -1 && customLevelSource) {
     state = freshStateFromLevel(customLevelSource);
+    gameplayMetrics.currentActions = 0;
     resultEl.classList.add("hidden");
     recordHistory("开局");
     render();
@@ -616,13 +867,14 @@ function restartLevel() {
   if (state.levelIndex === -3 && customLevelSource) {
     state = freshStateFromLevel(customLevelSource);
     state.levelIndex = -3;
+    gameplayMetrics.currentActions = 0;
     resultEl.classList.add("hidden");
     recordHistory("开局");
     render();
     renderDailyInfo();
     return;
   }
-  loadLevel(state.levelIndex);
+  loadLevel(state.levelIndex, true);
 }
 
 function getDirectionName(dx, dy) {
@@ -701,6 +953,7 @@ function move(dx, dy) {
   }
   state.player = next;
   state.ap -= 1;
+  gameplayMetrics.currentActions += 1;
   pickKey();
   activatePressurePlates();
   activateLights();
@@ -757,6 +1010,7 @@ function repair() {
   }
   exhibit.fixed = true;
   state.ap -= 1;
+  gameplayMetrics.currentActions += 1;
   addLog("展品被悄悄修回了正确状态。");
 
   if (tutorialState.active) {
@@ -790,6 +1044,7 @@ function endTurn() {
   }
 
   state.ap = 4;
+  gameplayMetrics.currentActions += 1;
   state.visionReduced = state.pendingVisionReduction;
   state.pendingVisionReduction = false;
   state.level.guards.forEach((guard) => {
@@ -868,6 +1123,69 @@ function win() {
     return;
   }
 
+  if (state.levelIndex >= 0 && state.levelIndex < levels.length) {
+    const stars = calculateStars(state.levelIndex, gameplayMetrics.currentActions, gameplayMetrics.hasRetried, gameplayMetrics.hintsUsedTotal);
+    const prevData = getLevelStarData(state.levelIndex);
+    const isNewBest = stars > prevData.bestStars;
+    updateLevelStarData(state.levelIndex, stars);
+
+    const nextIdx = getNextLevelIndex(state.levelIndex);
+    let nextLevelHtml = "";
+    if (nextIdx >= 0) {
+      nextLevelHtml = `<button id="nextLevelBtn" type="button" class="next-level-btn">进入下一关：关卡${levels[nextIdx].name}</button>`;
+    } else {
+      nextLevelHtml = `<p class="all-complete-msg">🎉 恭喜！你已通关所有关卡！</p>`;
+    }
+
+    const starDisplay = renderStars(stars);
+    const bestStarDisplay = isNewBest ? `<span class="star-new-best">新纪录！</span>` : `<span class="star-prev-best">历史最佳：${renderStars(prevData.bestStars)}</span>`;
+
+    resultEl.innerHTML = `
+      <h2>本关修复完成</h2>
+      <div class="star-rating">
+        <span class="star-display">${starDisplay}</span>
+        ${bestStarDisplay}
+      </div>
+      <div class="star-breakdown">
+        <p>行动数：${gameplayMetrics.currentActions}${levelDescriptions[state.levelIndex] ? `（三星 ≤${Math.ceil(levelDescriptions[state.levelIndex].optimalActions * 1.2)}）` : ""}</p>
+        <p>${gameplayMetrics.hasRetried ? "⚠️ 有重试记录" : "✓ 无重试"}</p>
+        <p>使用提示：${gameplayMetrics.hintsUsedTotal}次</p>
+      </div>
+      <p>所有展品复位，并从指定出口离开。</p>
+      ${nextLevelHtml}
+      <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
+      <button id="retryForStarsBtn" type="button" class="retry-stars-btn">重试刷星</button>
+    `;
+    resultEl.classList.remove("hidden");
+    addLog("警报没有响，展厅恢复安静。");
+    recordHistory("通关成功");
+
+    const replayBtn = document.getElementById("replayBtn");
+    if (replayBtn) replayBtn.addEventListener("click", () => openReplay(true));
+
+    const nextLevelBtn = document.getElementById("nextLevelBtn");
+    if (nextLevelBtn) {
+      nextLevelBtn.addEventListener("click", () => {
+        resultEl.classList.add("hidden");
+        loadLevel(nextIdx);
+        renderChapterView();
+      });
+    }
+
+    const retryForStarsBtn = document.getElementById("retryForStarsBtn");
+    if (retryForStarsBtn) {
+      retryForStarsBtn.addEventListener("click", () => {
+        resultEl.classList.add("hidden");
+        loadLevel(state.levelIndex);
+        renderChapterView();
+      });
+    }
+
+    render();
+    renderChapterView();
+    return;
+  }
+
   resultEl.innerHTML = `<h2>本关修复完成</h2><p>所有展品复位，并从指定出口离开。可以选择下一关继续。</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
   resultEl.classList.remove("hidden");
   addLog("警报没有响，展厅恢复安静。");
@@ -879,10 +1197,11 @@ function win() {
 
 function fail(reason) {
   state.done = true;
+  gameplayMetrics.hasRetried = true;
 
   updateStatsOnFail(state.levelIndex, reason);
 
-  resultEl.innerHTML = `<h2>行动失败</h2><p>${reason}</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+  resultEl.innerHTML = `<h2>行动失败</h2><p>${reason}</p><button id="failRetryBtn" type="button">重试本关</button><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
   resultEl.classList.remove("hidden");
   addLog(reason);
   if (!state.history[state.history.length - 1] || state.history[state.history.length - 1].action !== "被发现") {
@@ -890,6 +1209,11 @@ function fail(reason) {
   }
   const replayBtn = document.getElementById("replayBtn");
   if (replayBtn) replayBtn.addEventListener("click", () => openReplay(false));
+  const failRetryBtn = document.getElementById("failRetryBtn");
+  if (failRetryBtn) failRetryBtn.addEventListener("click", () => {
+    resultEl.classList.add("hidden");
+    restartLevel();
+  });
   render();
 }
 
@@ -1038,6 +1362,7 @@ function render() {
   apEl.textContent = state.ap;
   keysEl.textContent = state.keys;
   fixedEl.textContent = `${state.level.exhibits.filter((item) => item.fixed).length}/${state.level.exhibits.length}`;
+  renderLevelButtons();
   [...levelButtonsEl.children].forEach((button, index) => {
     button.classList.toggle("active", index === state.levelIndex);
   });
@@ -2093,6 +2418,7 @@ function requestHint() {
     render();
     return;
   }
+  gameplayMetrics.hintsUsedTotal += 1;
 
   addLog("正在分析局势，计算最优路线...");
   render();

@@ -14,6 +14,7 @@
         <h1>博物馆夜间修复师</h1>
       </div>
       <div class="header-buttons">
+        <button id="chapterBtn" type="button" class="chapter-toggle">章节模式</button>
         <button id="tutorialBtn" type="button" class="tutorial-toggle">新手教学</button>
         <button id="dailyBtn" type="button" class="daily-toggle">每日挑战</button>
         <button id="achievementBtn" type="button" class="achievement-toggle">成就统计</button>
@@ -23,6 +24,14 @@
     </header>
 
     <section id="dailyInfo" class="daily-info"></section>
+
+    <section id="chapterPanel" class="chapter-panel hidden">
+      <div class="chapter-header">
+        <h2>多展厅章节模式</h2>
+        <button id="chapterCloseBtn" type="button" class="editor-close">关闭</button>
+      </div>
+      <div id="chapterContent" class="chapter-content"></div>
+    </section>
 
     <section class="game">
       <aside class="panel">
