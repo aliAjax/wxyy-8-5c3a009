@@ -366,7 +366,7 @@ function isTutorialActionAllowed(action) {
   return step.allowedActions.includes(action);
 }
 
-function restartTutorialStep() {
+function restartTutorialStep(reason = "manual") {
   const currentStep = tutorialState.currentStep;
   const hasWaited = tutorialState.hasWaited;
 
@@ -408,7 +408,10 @@ function restartTutorialStep() {
     ap: 4,
     keys: keys,
     done: false,
-    log: [...state.log, "⚠️ 被巡逻员发现了！回到安全位置重试。"],
+    log: [
+      ...state.log,
+      reason === "guard" ? "⚠️ 被巡逻员发现了！回到安全位置重试。" : "重试当前教学步骤。"
+    ],
     history: []
   };
 
@@ -424,10 +427,15 @@ function restartTutorialStep() {
   if (tutorialState.errorTimeout) {
     clearTimeout(tutorialState.errorTimeout);
   }
-  tutorialState.errorTimeout = setTimeout(() => {
+  if (reason === "guard") {
+    tutorialState.errorTimeout = setTimeout(() => {
+      tutorialErrorEl.textContent = "";
+      tutorialState.errorTimeout = null;
+    }, 3000);
+  } else {
     tutorialErrorEl.textContent = "";
     tutorialState.errorTimeout = null;
-  }, 3000);
+  }
 
   recordHistory("重试当前步骤");
   render();
@@ -587,7 +595,7 @@ function move(dx, dy) {
   if (seenByGuard()) {
     if (tutorialState.active) {
       showTutorialError("seenByGuard", true);
-      restartTutorialStep();
+      restartTutorialStep("guard");
       return;
     }
     recordHistory(action);
@@ -675,7 +683,7 @@ function endTurn() {
   if (seenByGuard()) {
     if (tutorialState.active) {
       showTutorialError("seenByGuard", true);
-      restartTutorialStep();
+      restartTutorialStep("guard");
       return;
     }
     recordHistory("等待回合");
