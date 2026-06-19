@@ -8,6 +8,7 @@ const keysEl = document.getElementById("keys");
 const fixedEl = document.getElementById("fixed");
 const waitBtn = document.getElementById("waitBtn");
 const repairBtn = document.getElementById("repairBtn");
+const hintBtn = document.getElementById("hintBtn");
 const restartBtn = document.getElementById("restartBtn");
 const tutorialBtn = document.getElementById("tutorialBtn");
 const dailyBtn = document.getElementById("dailyBtn");
@@ -197,6 +198,11 @@ let tutorialState = {
 
 let state;
 let customLevelSource = null;
+let hintState = {
+  active: false,
+  path: [],
+  actionLabels: []
+};
 
 let replayState = {
   history: [],
@@ -532,6 +538,7 @@ function bindControls() {
   document.getElementById("rightBtn").addEventListener("click", () => move(1, 0));
   waitBtn.addEventListener("click", endTurn);
   repairBtn.addEventListener("click", repair);
+  hintBtn.addEventListener("click", requestHint);
   restartBtn.addEventListener("click", restartLevel);
   window.addEventListener("keydown", (event) => {
     const keys = {
@@ -619,6 +626,7 @@ function getDirectionName(dx, dy) {
 }
 
 function move(dx, dy) {
+  clearHint();
   if (state.done || state.ap <= 0) return;
 
   if (tutorialState.active) {
@@ -713,6 +721,7 @@ function move(dx, dy) {
 }
 
 function repair() {
+  clearHint();
   if (state.done || state.ap <= 0) return;
 
   if (tutorialState.active) {
@@ -761,6 +770,7 @@ function repair() {
 }
 
 function endTurn() {
+  clearHint();
   if (state.done) return;
 
   if (tutorialState.active) {
@@ -1023,6 +1033,8 @@ function render() {
   }
   waitBtn.disabled = state.done;
   repairBtn.disabled = state.done;
+  hintBtn.disabled = state.done;
+  hintBtn.classList.toggle("hint-btn", !state.done);
   renderBoard();
   renderLog();
 }
@@ -1037,6 +1049,22 @@ function renderBoard() {
     const step = tutorialSteps[tutorialState.currentStep];
     if (step.highlight) {
       tutorialHighlights = step.highlight;
+    }
+  }
+
+  let hintHighlights = [];
+  let hintStepMap = new Map();
+  let hintActionMap = new Map();
+  if (hintState.active && hintState.path.length > 0) {
+    const maxShow = Math.min(5, hintState.path.length);
+    for (let i = 0; i < maxShow; i++) {
+      const p = hintState.path[i];
+      const key = `${p.x},${p.y}`;
+      if (!hintStepMap.has(key)) {
+        hintStepMap.set(key, i + 1);
+        hintActionMap.set(key, hintState.actionLabels[i] || "");
+      }
+      hintHighlights.push(p);
     }
   }
 
@@ -1090,6 +1118,24 @@ function renderBoard() {
 
       if (tutorialHighlights.some(p => samePoint(p, point))) {
         tile.classList.add("tutorial-highlight");
+      }
+
+      const pk = `${point.x},${point.y}`;
+      if (hintStepMap.has(pk)) {
+        const stepNum = hintStepMap.get(pk);
+        tile.classList.add("hint-highlight");
+        tile.classList.add(`hint-highlight-step-${stepNum}`);
+        const numEl = document.createElement("div");
+        numEl.className = "hint-number";
+        numEl.textContent = stepNum;
+        tile.appendChild(numEl);
+        const actionText = hintActionMap.get(pk);
+        if (actionText) {
+          const actEl = document.createElement("div");
+          actEl.className = "hint-action-label";
+          actEl.textContent = actionText;
+          tile.appendChild(actEl);
+        }
       }
 
       tile.appendChild(label);
@@ -2019,6 +2065,314 @@ function calculateSteps() {
     }
   }
   return Math.max(1, steps);
+}
+
+function clearHint() {
+  hintState.active = false;
+  hintState.path = [];
+  hintState.actionLabels = [];
+}
+
+function requestHint() {
+  if (state.done) return;
+  if (tutorialState.active) {
+    addLog("教学模式中暂不提供提示。");
+    render();
+    return;
+  }
+
+  addLog("正在分析局势，计算最优路线...");
+  render();
+
+  setTimeout(() => {
+    const result = searchHintPath();
+    if (result && result.path && result.path.length > 1) {
+      hintState.active = true;
+      hintState.path = result.path;
+      hintState.actionLabels = result.actionLabels;
+      const actionsSummary = result.actionLabels.slice(0, Math.min(5, result.actionLabels.length)).filter(a => a).join(" → ");
+      if (actionsSummary) {
+        addLog(`💡 提示：推荐路线 - ${actionsSummary}`);
+      } else {
+        addLog("💡 提示：已在棋盘上高亮推荐路线");
+      }
+    } else {
+      clearHint();
+      addLog("😰 暂时找不到安全路线，建议先等待或调整位置。");
+    }
+    render();
+  }, 50);
+}
+
+function getGuardVisionAtStepWithScreens(guards, step, walls, screens, visionReduced) {
+  const vision = new Set();
+  const wallSet = new Set(walls);
+  const screenSet = new Set(screens.map(s => pointKey(s)));
+  const maxRange = visionReduced ? 1 : 2;
+  guards.forEach((guard) => {
+    const pos = guard.path[step % guard.path.length];
+    vision.add(pointKey(pos));
+    const nextPos = guard.path[(step + 1) % guard.path.length];
+    const dx = Math.sign(nextPos.x - pos.x);
+    const dy = Math.sign(nextPos.y - pos.y);
+    for (let i = 1; i <= maxRange; i++) {
+      const p = { x: pos.x + dx * i, y: pos.y + dy * i };
+      if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+      if (wallSet.has(pointKey(p))) break;
+      if (screenSet.has(pointKey(p))) break;
+      vision.add(pointKey(p));
+    }
+  });
+  return vision;
+}
+
+function cloneHintState(s) {
+  return {
+    pos: { ...s.pos },
+    keys: s.keys,
+    keysTaken: [...s.keysTaken],
+    doorsOpen: [...s.doorsOpen],
+    fixed: [...s.fixed],
+    plateTriggered: [...s.plateTriggered],
+    screens: s.screens.map(sc => ({ ...sc })),
+    lightsActive: [...s.lightsActive],
+    visionReduced: s.visionReduced,
+    pendingVisionReduction: s.pendingVisionReduction,
+    step: s.step,
+    ap: s.ap,
+    path: [...s.path],
+    actionLabels: [...s.actionLabels]
+  };
+}
+
+function hintStateKey(s, cycleLen, numExhibits, numPlates, numLights) {
+  const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
+  const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
+  const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
+  const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
+  const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
+  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}`;
+}
+
+function searchHintPath() {
+  const { walls, doors, keys: keyItems, exhibits, guards, exit } = state.level;
+  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const pressurePlates = mechanisms.pressurePlates || [];
+  const screens = mechanisms.screens || [];
+  const lights = mechanisms.lights || [];
+
+  const numExhibits = exhibits.length;
+  const numDoors = doors.length;
+  const numPlates = pressurePlates.length;
+  const numLights = lights.length;
+  const cycleLen = getGuardCycleLength(guards);
+
+  const currentDoorsOpen = doors.map(d => d.open);
+  const currentKeysTaken = keyItems.map(k => k.taken);
+  const currentFixed = exhibits.map(e => e.fixed);
+  const currentPlateTriggered = pressurePlates.map(p => p.triggered);
+  const currentScreens = screens.map(s => ({ ...s }));
+  const currentLightsActive = lights.map(l => l.active);
+
+  const allExhibitsFixedNow = currentFixed.every(f => f);
+  const atExitNow = samePoint(state.player, exit);
+  if (allExhibitsFixedNow && atExitNow) {
+    return { path: [{ ...state.player }], actionLabels: ["已完成"] };
+  }
+
+  const visited = new Set();
+  const initial = {
+    pos: { ...state.player },
+    keys: state.keys,
+    keysTaken: [...currentKeysTaken],
+    doorsOpen: [...currentDoorsOpen],
+    fixed: [...currentFixed],
+    plateTriggered: [...currentPlateTriggered],
+    screens: [...currentScreens],
+    lightsActive: [...currentLightsActive],
+    visionReduced: state.visionReduced,
+    pendingVisionReduction: state.pendingVisionReduction,
+    step: 0,
+    ap: state.ap,
+    path: [{ ...state.player }],
+    actionLabels: ["当前位置"]
+  };
+
+  const initKey = hintStateKey(initial, cycleLen, numExhibits, numPlates, numLights);
+  visited.add(initKey);
+
+  const queue = [initial];
+  let iterations = 0;
+  const maxIterations = 80000;
+
+  function checkAndEnqueue(newState) {
+    const allFixed = newState.fixed.every(f => f);
+    const atExit = samePoint(newState.pos, exit);
+    if (allFixed && atExit) {
+      return newState;
+    }
+    const sk = hintStateKey(newState, cycleLen, numExhibits, numPlates, numLights);
+    if (!visited.has(sk)) {
+      visited.add(sk);
+      queue.push(newState);
+    }
+    return null;
+  }
+
+  while (queue.length > 0 && iterations < maxIterations) {
+    iterations++;
+    const cur = queue.shift();
+
+    const dirs = [
+      [1, 0, "右"],
+      [-1, 0, "左"],
+      [0, 1, "下"],
+      [0, -1, "上"]
+    ];
+
+    for (const [dx, dy, dirName] of dirs) {
+      if (cur.ap <= 0) continue;
+      const nx = cur.pos.x + dx;
+      const ny = cur.pos.y + dy;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      const newPos = { x: nx, y: ny };
+      const pk = pointKey(newPos);
+      if (walls.includes(pk)) continue;
+
+      const ns = cloneHintState(cur);
+      let actionLabel = `向${dirName}`;
+      let usedKey = false;
+
+      const screenIdx = ns.screens.findIndex(sc => samePoint(sc, newPos));
+      if (screenIdx >= 0) {
+        const pushDest = { x: nx + dx, y: ny + dy };
+        if (pushDest.x < 0 || pushDest.x >= BOARD_W || pushDest.y < 0 || pushDest.y >= BOARD_H) continue;
+        if (walls.includes(pointKey(pushDest))) continue;
+        const pushDoorIdx = doors.findIndex(d => samePoint(d, pushDest));
+        if (pushDoorIdx >= 0 && !ns.doorsOpen[pushDoorIdx]) continue;
+        if (ns.screens.some(sc => samePoint(sc, pushDest))) continue;
+        if (exhibits.some(e => samePoint(e, pushDest))) continue;
+        ns.screens[screenIdx] = { ...pushDest };
+        actionLabel = `推屏风+${dirName}`;
+      }
+
+      const doorIdx = doors.findIndex(d => d.x === nx && d.y === ny);
+      if (doorIdx >= 0 && !ns.doorsOpen[doorIdx]) {
+        if (ns.keys <= 0) continue;
+        ns.keys -= 1;
+        ns.doorsOpen[doorIdx] = true;
+        usedKey = true;
+        actionLabel = "开门+" + actionLabel;
+      }
+
+      const vision = getGuardVisionAtStepWithScreens(guards, cur.step, walls, ns.screens, ns.visionReduced);
+      if (vision.has(pk)) continue;
+
+      for (let i = 0; i < keyItems.length; i++) {
+        if (!ns.keysTaken[i] && keyItems[i].x === nx && keyItems[i].y === ny) {
+          ns.keys += 1;
+          ns.keysTaken[i] = true;
+          actionLabel += "+拾钥匙";
+        }
+      }
+
+      ns.pos = newPos;
+
+      for (let pi = 0; pi < numPlates; pi++) {
+        const plate = pressurePlates[pi];
+        const playerOn = samePoint(ns.pos, plate);
+        if (playerOn && !ns.plateTriggered[pi]) {
+          ns.plateTriggered[pi] = true;
+          for (const td of plate.targetDoors) {
+            const tdi = doors.findIndex(d => samePoint(d, td));
+            if (tdi >= 0) ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
+          }
+          actionLabel += "+踩压板";
+        } else if (!playerOn && ns.plateTriggered[pi]) {
+          ns.plateTriggered[pi] = false;
+        }
+      }
+
+      for (let li = 0; li < numLights; li++) {
+        const light = lights[li];
+        if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
+          ns.lightsActive[li] = true;
+          ns.pendingVisionReduction = true;
+          actionLabel += "+熄灯";
+        }
+      }
+
+      ns.path.push({ ...ns.pos });
+      ns.actionLabels.push(actionLabel);
+      ns.ap -= 1;
+
+      if (ns.ap <= 0) {
+        const nextStep = (cur.step + 1) % cycleLen;
+        const nextVision = getGuardVisionAtStepWithScreens(guards, nextStep, walls, ns.screens, ns.pendingVisionReduction);
+        const curPk = pointKey(ns.pos);
+        if (!nextVision.has(curPk)) {
+          ns.step = nextStep;
+          ns.ap = 4;
+          ns.visionReduced = ns.pendingVisionReduction;
+          ns.pendingVisionReduction = false;
+          ns.actionLabels[ns.actionLabels.length - 1] = actionLabel + "+等待";
+          const found = checkAndEnqueue(ns);
+          if (found) return { path: found.path, actionLabels: found.actionLabels };
+        }
+      } else {
+        const found = checkAndEnqueue(ns);
+        if (found) return { path: found.path, actionLabels: found.actionLabels };
+      }
+    }
+
+    for (let i = 0; i < numExhibits; i++) {
+      if (cur.ap <= 0) continue;
+      if (!cur.fixed[i] && isAdjacent(cur.pos, exhibits[i])) {
+        const ns = cloneHintState(cur);
+        ns.fixed[i] = true;
+        ns.ap -= 1;
+        ns.path.push({ ...ns.pos });
+        ns.actionLabels.push("修复展柜");
+
+        if (ns.ap <= 0) {
+          const nextStep = (cur.step + 1) % cycleLen;
+          const nextVision = getGuardVisionAtStepWithScreens(guards, nextStep, walls, ns.screens, ns.pendingVisionReduction);
+          const curPk = pointKey(ns.pos);
+          if (!nextVision.has(curPk)) {
+            ns.step = nextStep;
+            ns.ap = 4;
+            ns.visionReduced = ns.pendingVisionReduction;
+            ns.pendingVisionReduction = false;
+            ns.actionLabels[ns.actionLabels.length - 1] = "修复展柜+等待";
+            const found = checkAndEnqueue(ns);
+            if (found) return { path: found.path, actionLabels: found.actionLabels };
+          }
+        } else {
+          const found = checkAndEnqueue(ns);
+          if (found) return { path: found.path, actionLabels: found.actionLabels };
+        }
+      }
+    }
+
+    {
+      const nextStep = (cur.step + 1) % cycleLen;
+      const nextVision = getGuardVisionAtStepWithScreens(guards, nextStep, walls, cur.screens, cur.pendingVisionReduction);
+      const curPk = pointKey(cur.pos);
+      if (!nextVision.has(curPk)) {
+        const ns = cloneHintState(cur);
+        ns.step = nextStep;
+        ns.ap = 4;
+        ns.visionReduced = ns.pendingVisionReduction;
+        ns.pendingVisionReduction = false;
+        ns.path.push({ ...ns.pos });
+        ns.actionLabels.push("等待回合");
+        const found = checkAndEnqueue(ns);
+        if (found) return { path: found.path, actionLabels: found.actionLabels };
+      }
+    }
+  }
+
+  return null;
 }
 
 init();
