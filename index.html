@@ -56,6 +56,7 @@
         <button id="repairBtn" type="button">修复展柜</button>
         <button id="hintBtn" type="button">请求提示</button>
         <button id="restartBtn" type="button">重试本关</button>
+        <button id="backToEditorBtn" type="button" class="back-to-editor hidden">返回编辑器</button>
       </aside>
 
       <section class="board-shell">
@@ -137,8 +138,8 @@
         <h2>关卡编辑器</h2>
         <div class="editor-actions">
           <button id="editorPlayBtn" type="button">试玩关卡</button>
-          <button id="editorSaveBtn" type="button">保存到本地</button>
-          <button id="editorLoadBtn" type="button">读取存档</button>
+          <button id="editorLibraryBtn" type="button">关卡库</button>
+          <button id="editorSaveBtn" type="button">保存新关卡</button>
           <button id="editorClearBtn" type="button">清空关卡</button>
           <button id="editorCloseBtn" type="button" class="editor-close">关闭编辑器</button>
         </div>
@@ -209,6 +210,31 @@
             <div class="diagnosis-solution" id="diagnosisSolution"></div>
           </div>
         </aside>
+      </div>
+    </section>
+
+    <section id="levelLibrary" class="level-library hidden">
+      <div class="library-header">
+        <h2>本地关卡库</h2>
+        <div class="library-actions">
+          <button id="libraryCloseBtn" type="button" class="editor-close">关闭</button>
+        </div>
+      </div>
+      <div class="library-body">
+        <div class="library-save-section">
+          <h3>保存当前关卡</h3>
+          <div class="save-form">
+            <input type="text" id="librarySaveName" placeholder="输入关卡名称" maxlength="20">
+            <button id="librarySaveBtn" type="button">保存</button>
+          </div>
+        </div>
+        <div class="library-list-section">
+          <div class="library-list-header">
+            <h3>我的关卡</h3>
+            <span id="libraryCount" class="library-count">0 个关卡</span>
+          </div>
+          <div id="libraryList" class="library-list"></div>
+        </div>
       </div>
     </section>
   </main>

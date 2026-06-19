@@ -520,7 +520,19 @@ function loadCustomLevel(levelData) {
   [...levelButtonsEl.children].forEach((button) => {
     button.classList.remove("active");
   });
+  toggleBackToEditorBtn(true);
   render();
+}
+
+function toggleBackToEditorBtn(show) {
+  const backToEditorBtn = document.getElementById("backToEditorBtn");
+  if (backToEditorBtn) {
+    if (show) {
+      backToEditorBtn.classList.remove("hidden");
+    } else {
+      backToEditorBtn.classList.add("hidden");
+    }
+  }
 }
 
 function startTutorial() {
@@ -553,6 +565,8 @@ function startTutorial() {
   tutorialState.currentStep = 0;
   tutorialState.hasWaited = false;
   tutorialState.wrongAttempts = 0;
+  customLevelSource = null;
+  toggleBackToEditorBtn(false);
   resultEl.classList.add("hidden");
   tutorialHintEl.classList.remove("hidden");
   [...levelButtonsEl.children].forEach((button) => {
@@ -1144,6 +1158,7 @@ function loadLevel(index, preserveMetrics) {
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
+  toggleBackToEditorBtn(false);
   if (!preserveMetrics) resetGameplayMetrics();
   else gameplayMetrics.currentActions = 0;
   recordHistory("开局");
@@ -2754,6 +2769,7 @@ function loadDailyChallenge() {
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
+  toggleBackToEditorBtn(false);
   [...levelButtonsEl.children].forEach((button) => {
     button.classList.remove("active");
   });

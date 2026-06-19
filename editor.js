@@ -4,7 +4,7 @@ const editorToggleBtn = document.getElementById("editorToggleBtn");
 const editorCloseBtn = document.getElementById("editorCloseBtn");
 const editorPlayBtn = document.getElementById("editorPlayBtn");
 const editorSaveBtn = document.getElementById("editorSaveBtn");
-const editorLoadBtn = document.getElementById("editorLoadBtn");
+const editorLibraryBtn = document.getElementById("editorLibraryBtn");
 const editorClearBtn = document.getElementById("editorClearBtn");
 const editorLevelNameInput = document.getElementById("editorLevelName");
 const editorWarningEl = document.getElementById("editorWarning");
@@ -27,9 +27,19 @@ const diagnosisIssuesEl = document.getElementById("diagnosisIssues");
 const diagnosisWarningsEl = document.getElementById("diagnosisWarnings");
 const diagnosisSolutionEl = document.getElementById("diagnosisSolution");
 
+const levelLibraryEl = document.getElementById("levelLibrary");
+const libraryCloseBtn = document.getElementById("libraryCloseBtn");
+const librarySaveBtn = document.getElementById("librarySaveBtn");
+const librarySaveNameEl = document.getElementById("librarySaveName");
+const libraryListEl = document.getElementById("libraryList");
+const libraryCountEl = document.getElementById("libraryCount");
+
+const backToEditorBtn = document.getElementById("backToEditorBtn");
+
 const GRID_WIDTH = 8;
 const GRID_HEIGHT = 7;
 const STORAGE_KEY = "museum_editor_level";
+const LIBRARY_STORAGE_KEY = "museum_level_library";
 
 const GUARD_BEHAVIOR_OPTIONS = [
   { value: "fixed", label: "固定巡逻", desc: "沿固定路径循环移动" },
@@ -46,7 +56,9 @@ let editorState = {
   currentGuardPath: null,
   isOpen: false,
   diagnosisTimer: null,
-  lastDiagnosisResult: null
+  lastDiagnosisResult: null,
+  library: [],
+  libraryOpen: false
 };
 
 function createEmptyLevel() {
@@ -69,6 +81,7 @@ function createEmptyLevel() {
 
 function initEditor() {
   bindEditorEvents();
+  loadLibraryFromStorage();
   renderEditorBoard();
   updateEditorStats();
 }
@@ -77,13 +90,28 @@ function bindEditorEvents() {
   editorToggleBtn.addEventListener("click", toggleEditor);
   editorCloseBtn.addEventListener("click", toggleEditor);
   editorPlayBtn.addEventListener("click", playEditorLevel);
-  editorSaveBtn.addEventListener("click", saveLevelToStorage);
-  editorLoadBtn.addEventListener("click", loadLevelFromStorage);
+  editorSaveBtn.addEventListener("click", () => {
+    finishGuardPath();
+    if (!validateLevel()) {
+      showWarning("关卡不完整，无法保存");
+      return;
+    }
+    openLevelLibrary(true);
+    librarySaveNameEl.value = editorState.level.name || "自定义";
+  });
+  editorLibraryBtn.addEventListener("click", () => {
+    openLevelLibrary(false);
+  });
   editorClearBtn.addEventListener("click", clearEditorLevel);
   editorDiagnoseBtn.addEventListener("click", runDiagnosis);
   editorLevelNameInput.addEventListener("input", (e) => {
     editorState.level.name = e.target.value || "自定义";
   });
+
+  libraryCloseBtn.addEventListener("click", closeLevelLibrary);
+  librarySaveBtn.addEventListener("click", handleLibrarySave);
+
+  backToEditorBtn.addEventListener("click", returnToEditor);
 
   document.querySelectorAll(".tool-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -117,6 +145,10 @@ function toggleEditor() {
     updateEditorStats();
     validateLevel();
     scheduleDiagnosis();
+  } else {
+    if (editorState.libraryOpen) {
+      closeLevelLibrary();
+    }
   }
 }
 
@@ -576,11 +608,74 @@ function playEditorLevel() {
 
   if (typeof loadCustomLevel === "function") {
     loadCustomLevel(levelData);
+    if (backToEditorBtn) {
+      backToEditorBtn.classList.remove("hidden");
+    }
+    if (typeof toggleBackToEditorBtn === "function") {
+      toggleBackToEditorBtn(true);
+    }
     toggleEditor();
   }
 }
 
-function saveLevelToStorage() {
+function clearEditorLevel() {
+  if (confirm("确定要清空当前关卡吗？")) {
+    editorState.level = createEmptyLevel();
+    editorState.currentGuardPath = null;
+    editorLevelNameInput.value = "自定义";
+    renderEditorBoard();
+    updateEditorStats();
+    validateLevel();
+    scheduleDiagnosis();
+  }
+}
+
+function loadLibraryFromStorage() {
+  try {
+    const data = localStorage.getItem(LIBRARY_STORAGE_KEY);
+    if (data) {
+      editorState.library = JSON.parse(data);
+    } else {
+      editorState.library = [];
+    }
+  } catch (e) {
+    editorState.library = [];
+  }
+}
+
+function saveLibraryToStorage() {
+  try {
+    localStorage.setItem(LIBRARY_STORAGE_KEY, JSON.stringify(editorState.library));
+    return true;
+  } catch (e) {
+    showWarning("保存失败，存储空间不足");
+    return false;
+  }
+}
+
+function openLevelLibrary(focusSave) {
+  loadLibraryFromStorage();
+  editorState.libraryOpen = true;
+  levelLibraryEl.classList.remove("hidden");
+  renderLibraryList();
+  if (focusSave) {
+    librarySaveNameEl.focus();
+    librarySaveNameEl.select();
+  }
+}
+
+function closeLevelLibrary() {
+  editorState.libraryOpen = false;
+  levelLibraryEl.classList.add("hidden");
+}
+
+function handleLibrarySave() {
+  const name = librarySaveNameEl.value.trim();
+  if (!name) {
+    showWarning("请输入关卡名称");
+    return;
+  }
+
   finishGuardPath();
 
   if (!validateLevel()) {
@@ -606,43 +701,187 @@ function saveLevelToStorage() {
     }
   }
 
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(levelData));
-    showWarning("关卡已保存到本地 ✓");
-  } catch (e) {
-    showWarning("保存失败");
-  }
-}
+  levelData.name = name;
+  const existingIndex = editorState.library.findIndex((item) => item.name === name);
 
-function loadLevelFromStorage() {
-  try {
-    const data = localStorage.getItem(STORAGE_KEY);
-    if (data) {
-      const levelData = JSON.parse(data);
-      editorState.level = levelData;
-      editorLevelNameInput.value = levelData.name || "自定义";
-      renderEditorBoard();
-      updateEditorStats();
-      validateLevel();
-      scheduleDiagnosis();
-      showWarning("关卡已读取");
-    } else {
-      showWarning("没有找到存档");
+  if (existingIndex !== -1) {
+    if (!confirm(`关卡"${name}"已存在，是否覆盖？`)) {
+      return;
     }
-  } catch (e) {
-    showWarning("读取失败");
+    editorState.library[existingIndex] = {
+      ...editorState.library[existingIndex],
+      name: name,
+      data: levelData,
+      updatedAt: Date.now()
+    };
+    showWarning("关卡已覆盖 ✓");
+  } else {
+    editorState.library.push({
+      id: `level_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      name: name,
+      data: levelData,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    });
+    showWarning("关卡已保存 ✓");
   }
+
+  saveLibraryToStorage();
+  renderLibraryList();
+  librarySaveNameEl.value = "";
 }
 
-function clearEditorLevel() {
-  if (confirm("确定要清空当前关卡吗？")) {
-    editorState.level = createEmptyLevel();
+function renderLibraryList() {
+  const items = editorState.library;
+  libraryCountEl.textContent = `${items.length} 个关卡`;
+
+  if (items.length === 0) {
+    libraryListEl.innerHTML = '<div class="library-empty">暂无保存的关卡</div>';
+    return;
+  }
+
+  const sortedItems = [...items].sort((a, b) => b.updatedAt - a.updatedAt);
+
+  libraryListEl.innerHTML = sortedItems.map((item) => {
+    const date = new Date(item.updatedAt);
+    const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+    const data = item.data;
+    const exhibitCount = data.exhibits ? data.exhibits.length : 0;
+    const guardCount = data.guards ? data.guards.length : 0;
+    return `
+      <div class="library-item" data-id="${item.id}">
+        <div class="library-item-info">
+          <div class="library-item-name">${escapeHtml(item.name)}</div>
+          <div class="library-item-meta">
+            <span>展柜 ${exhibitCount}</span>
+            <span>巡逻员 ${guardCount}</span>
+            <span>更新于 ${dateStr}</span>
+          </div>
+        </div>
+        <div class="library-item-actions">
+          <button type="button" class="library-btn library-load-btn" data-id="${item.id}">读取</button>
+          <button type="button" class="library-btn library-overwrite-btn" data-id="${item.id}">覆盖</button>
+          <button type="button" class="library-btn library-delete-btn" data-id="${item.id}">删除</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  libraryListEl.querySelectorAll(".library-load-btn").forEach((btn) => {
+    btn.addEventListener("click", () => loadLevelFromLibrary(btn.dataset.id));
+  });
+  libraryListEl.querySelectorAll(".library-overwrite-btn").forEach((btn) => {
+    btn.addEventListener("click", () => overwriteLevelInLibrary(btn.dataset.id));
+  });
+  libraryListEl.querySelectorAll(".library-delete-btn").forEach((btn) => {
+    btn.addEventListener("click", () => deleteLevelFromLibrary(btn.dataset.id));
+  });
+}
+
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function loadLevelFromLibrary(id) {
+  const item = editorState.library.find((l) => l.id === id);
+  if (!item) {
+    showWarning("未找到关卡");
+    return;
+  }
+  editorState.level = JSON.parse(JSON.stringify(item.data));
+  if (!editorState.level.mechanisms) {
+    editorState.level.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+  }
+  editorState.currentGuardPath = null;
+  editorLevelNameInput.value = editorState.level.name || "自定义";
+  renderEditorBoard();
+  updateEditorStats();
+  validateLevel();
+  scheduleDiagnosis();
+  showWarning("已加载关卡");
+}
+
+function overwriteLevelInLibrary(id) {
+  const item = editorState.library.find((l) => l.id === id);
+  if (!item) {
+    showWarning("未找到关卡");
+    return;
+  }
+
+  finishGuardPath();
+  if (!validateLevel()) {
+    showWarning("关卡不完整，无法覆盖");
+    return;
+  }
+
+  if (!confirm(`确定要覆盖"${item.name}"吗？`)) {
+    return;
+  }
+
+  const levelData = JSON.parse(JSON.stringify(editorState.level));
+  if (!levelData.mechanisms) {
+    levelData.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+  }
+
+  let solvable = true;
+  if (typeof diagnoseLevel === "function") {
+    const result = diagnoseLevel(levelData);
+    editorState.lastDiagnosisResult = result;
+    renderDiagnosisResult(result);
+    solvable = result.solvable;
+    if (!solvable) {
+      const issueSummary = result.issues.slice(0, 2).join("；") || "找不到合法通关路线";
+      showWarning("关卡不可通关，无法覆盖：" + issueSummary);
+      return;
+    }
+  }
+
+  levelData.name = item.name;
+  item.data = levelData;
+  item.updatedAt = Date.now();
+  saveLibraryToStorage();
+  renderLibraryList();
+  showWarning("已覆盖关卡 ✓");
+}
+
+function deleteLevelFromLibrary(id) {
+  const item = editorState.library.find((l) => l.id === id);
+  if (!item) {
+    showWarning("未找到关卡");
+    return;
+  }
+  if (!confirm(`确定要删除"${item.name}"吗？此操作不可撤销。`)) {
+    return;
+  }
+  editorState.library = editorState.library.filter((l) => l.id !== id);
+  saveLibraryToStorage();
+  renderLibraryList();
+  showWarning("已删除关卡");
+}
+
+function returnToEditor() {
+  if (typeof customLevelSource !== "undefined" && customLevelSource) {
+    editorState.level = JSON.parse(JSON.stringify(customLevelSource));
+    if (!editorState.level.mechanisms) {
+      editorState.level.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+    }
     editorState.currentGuardPath = null;
-    editorLevelNameInput.value = "自定义";
+    editorLevelNameInput.value = editorState.level.name || "自定义";
     renderEditorBoard();
     updateEditorStats();
     validateLevel();
     scheduleDiagnosis();
+  }
+  if (backToEditorBtn) {
+    backToEditorBtn.classList.add("hidden");
+  }
+  if (typeof toggleBackToEditorBtn === "function") {
+    toggleBackToEditorBtn(false);
+  }
+  if (!editorState.isOpen) {
+    toggleEditor();
   }
 }
 
