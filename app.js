@@ -67,6 +67,32 @@ function freshState(index) {
   };
 }
 
+function freshStateFromLevel(levelData) {
+  const level = JSON.parse(JSON.stringify(levelData));
+  level.keys = level.keys.map((k) => ({ ...k, taken: false }));
+  level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
+  level.doors = level.doors.map((d) => ({ ...d, open: false }));
+  level.guards = level.guards.map((g) => ({ path: [...g.path], step: 0 }));
+  return {
+    levelIndex: -1,
+    level,
+    player: { ...level.player },
+    ap: 4,
+    keys: 0,
+    done: false,
+    log: [`${level.name}关卡夜巡开始，避开视线完成修复。`]
+  };
+}
+
+function loadCustomLevel(levelData) {
+  state = freshStateFromLevel(levelData);
+  resultEl.classList.add("hidden");
+  [...levelButtonsEl.children].forEach((button) => {
+    button.classList.remove("active");
+  });
+  render();
+}
+
 function init() {
   renderLevelButtons();
   state = freshState(0);

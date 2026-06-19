@@ -13,7 +13,10 @@
         <p class="eyebrow">Museum Night Restorer</p>
         <h1>博物馆夜间修复师</h1>
       </div>
-      <div id="levelButtons" class="level-buttons"></div>
+      <div class="header-buttons">
+        <button id="editorToggleBtn" type="button" class="editor-toggle">关卡编辑器</button>
+        <div id="levelButtons" class="level-buttons"></div>
+      </div>
     </header>
 
     <section class="game">
@@ -47,8 +50,65 @@
     </section>
 
     <section id="result" class="result hidden"></section>
+
+    <section id="editor" class="editor hidden">
+      <div class="editor-header">
+        <h2>关卡编辑器</h2>
+        <div class="editor-actions">
+          <button id="editorPlayBtn" type="button">试玩关卡</button>
+          <button id="editorSaveBtn" type="button">保存到本地</button>
+          <button id="editorLoadBtn" type="button">读取存档</button>
+          <button id="editorClearBtn" type="button">清空关卡</button>
+          <button id="editorCloseBtn" type="button" class="editor-close">关闭编辑器</button>
+        </div>
+      </div>
+
+      <div class="editor-body">
+        <aside class="panel editor-tools">
+          <h3>工具</h3>
+          <div class="tool-list">
+            <button type="button" class="tool-btn active" data-tool="wall">墙</button>
+            <button type="button" class="tool-btn" data-tool="door">门</button>
+            <button type="button" class="tool-btn" data-tool="key">钥匙</button>
+            <button type="button" class="tool-btn" data-tool="exhibit">展柜</button>
+            <button type="button" class="tool-btn" data-tool="exit">出口</button>
+            <button type="button" class="tool-btn" data-tool="player">玩家起点</button>
+            <button type="button" class="tool-btn" data-tool="guard">巡逻员路径</button>
+            <button type="button" class="tool-btn" data-tool="eraser">橡皮擦</button>
+          </div>
+          <div class="editor-info">
+            <p>点击格子放置/移除元素</p>
+            <p>巡逻员路径：依次点击格子形成路径</p>
+            <p>再次点击巡逻员工具开始新路径</p>
+          </div>
+        </aside>
+
+        <section class="board-shell">
+          <div id="editorBoard" class="board editor-board"></div>
+        </section>
+
+        <aside class="panel editor-preview">
+          <h3>关卡信息</h3>
+          <div class="editor-stats">
+            <p>墙：<span id="editorWallCount">0</span></p>
+            <p>门：<span id="editorDoorCount">0</span></p>
+            <p>钥匙：<span id="editorKeyCount">0</span></p>
+            <p>展柜：<span id="editorExhibitCount">0</span></p>
+            <p>出口：<span id="editorExitCount">0</span></p>
+            <p>玩家起点：<span id="editorPlayerCount">0</span></p>
+            <p>巡逻员：<span id="editorGuardCount">0</span></p>
+          </div>
+          <div class="editor-level-name">
+            <label>关卡名称：</label>
+            <input type="text" id="editorLevelName" value="自定义" maxlength="10">
+          </div>
+          <div class="editor-warning" id="editorWarning"></div>
+        </aside>
+      </div>
+    </section>
   </main>
 
   <script src="app.js"></script>
+  <script src="editor.js"></script>
 </body>
 </html>
