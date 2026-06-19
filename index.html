@@ -42,6 +42,16 @@
           <span>钥匙<strong id="keys">0</strong></span>
           <span>修复<strong id="fixed">0/1</strong></span>
         </div>
+        <div id="alertLevel" class="alert-level-panel">
+          <span class="alert-label">警觉程度</span>
+          <span class="alert-level" style="color: #4f7f6a">平静</span>
+          <span class="alert-dots">
+            <span class="alert-dot" style="background: #3c3642"></span>
+            <span class="alert-dot" style="background: #3c3642"></span>
+            <span class="alert-dot" style="background: #3c3642"></span>
+            <span class="alert-dot" style="background: #3c3642"></span>
+          </span>
+        </div>
         <button id="waitBtn" type="button">等待回合</button>
         <button id="repairBtn" type="button">修复展柜</button>
         <button id="hintBtn" type="button">请求提示</button>
@@ -178,6 +188,10 @@
           <div class="editor-level-name">
             <label>关卡名称：</label>
             <input type="text" id="editorLevelName" value="自定义" maxlength="10">
+          </div>
+          <div class="guard-behavior-config" id="guardBehaviorConfig">
+            <h4>巡逻员行为配置</h4>
+            <div id="guardBehaviorList" class="guard-behavior-list"></div>
           </div>
           <div class="editor-warning" id="editorWarning"></div>
           <div class="editor-diagnosis" id="editorDiagnosis">

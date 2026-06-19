@@ -31,6 +31,15 @@ const GRID_WIDTH = 8;
 const GRID_HEIGHT = 7;
 const STORAGE_KEY = "museum_editor_level";
 
+const GUARD_BEHAVIOR_OPTIONS = [
+  { value: "fixed", label: "固定巡逻", desc: "沿固定路径循环移动" },
+  { value: "patrol", label: "往返巡逻", desc: "沿路径往返移动" },
+  { value: "investigate", label: "听觉调查", desc: "听到声响后短暂调查" },
+  { value: "trace", label: "痕迹追踪", desc: "发现开门痕迹后改变路线" }
+];
+
+const guardBehaviorListEl = document.getElementById("guardBehaviorList");
+
 let editorState = {
   currentTool: "wall",
   level: createEmptyLevel(),
@@ -406,6 +415,7 @@ function updateEditorStats() {
   editorPlateCountEl.textContent = mech.pressurePlates.length;
   editorScreenCountEl.textContent = mech.screens.length;
   editorLightCountEl.textContent = mech.lights.length;
+  renderGuardBehaviorConfig();
 }
 
 function validateLevel() {
@@ -453,10 +463,91 @@ function finishGuardPath() {
   if (editorState.currentGuardPath && editorState.currentGuardPath.length >= 2) {
     editorState.level.guards.push({
       path: [...editorState.currentGuardPath],
-      step: 0
+      step: 0,
+      behavior: "fixed",
+      hearingRange: 4
     });
     editorState.currentGuardPath = [];
   }
+}
+
+function renderGuardBehaviorConfig() {
+  if (!guardBehaviorListEl) return;
+
+  const guards = editorState.level.guards;
+  if (guards.length === 0) {
+    guardBehaviorListEl.innerHTML = '<p class="no-guards-hint">先放置巡逻员路径后可配置行为</p>';
+    return;
+  }
+
+  guardBehaviorListEl.innerHTML = "";
+  guards.forEach((guard, index) => {
+    const card = document.createElement("div");
+    card.className = "guard-behavior-card";
+    const currentBehavior = guard.behavior || "fixed";
+    const behaviorInfo = GUARD_BEHAVIOR_OPTIONS.find(b => b.value === currentBehavior) || GUARD_BEHAVIOR_OPTIONS[0];
+
+    card.innerHTML = `
+      <div class="guard-behavior-header">
+        <span class="guard-behavior-title">巡逻员 ${index + 1}</span>
+        <select class="guard-behavior-select" data-guard-index="${index}">
+          ${GUARD_BEHAVIOR_OPTIONS.map(opt => 
+            `<option value="${opt.value}" ${opt.value === currentBehavior ? 'selected' : ''}>${opt.label}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div class="guard-behavior-desc">${behaviorInfo.desc}</div>
+      <div class="guard-hearing-config">
+        <label>听觉范围：</label>
+        <input type="range" class="guard-hearing-range" data-guard-index="${index}" 
+               min="1" max="8" value="${guard.hearingRange || 4}">
+        <span class="guard-hearing-value">${guard.hearingRange || 4}</span>
+      </div>
+      <div class="guard-path-info">
+        <span>路径长度：${guard.path.length} 格</span>
+        <button type="button" class="guard-delete-btn" data-guard-index="${index}">删除</button>
+      </div>
+    `;
+    guardBehaviorListEl.appendChild(card);
+  });
+
+  guardBehaviorListEl.querySelectorAll(".guard-behavior-select").forEach(select => {
+    select.addEventListener("change", (e) => {
+      const index = parseInt(e.target.dataset.guardIndex, 10);
+      const guard = editorState.level.guards[index];
+      if (guard) {
+        guard.behavior = e.target.value;
+        renderGuardBehaviorConfig();
+        scheduleDiagnosis();
+      }
+    });
+  });
+
+  guardBehaviorListEl.querySelectorAll(".guard-hearing-range").forEach(slider => {
+    slider.addEventListener("input", (e) => {
+      const index = parseInt(e.target.dataset.guardIndex, 10);
+      const value = parseInt(e.target.value, 10);
+      const guard = editorState.level.guards[index];
+      if (guard) {
+        guard.hearingRange = value;
+        const valueEl = e.target.parentElement.querySelector(".guard-hearing-value");
+        if (valueEl) valueEl.textContent = value;
+      }
+    });
+  });
+
+  guardBehaviorListEl.querySelectorAll(".guard-delete-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const index = parseInt(e.target.dataset.guardIndex, 10);
+      if (confirm(`确定要删除巡逻员 ${index + 1} 吗？`)) {
+        editorState.level.guards.splice(index, 1);
+        renderEditorBoard();
+        updateEditorStats();
+        renderGuardBehaviorConfig();
+        scheduleDiagnosis();
+      }
+    });
+  });
 }
 
 function playEditorLevel() {

@@ -6,6 +6,21 @@ const levelNameEl = document.getElementById("levelName");
 const apEl = document.getElementById("ap");
 const keysEl = document.getElementById("keys");
 const fixedEl = document.getElementById("fixed");
+const alertLevelEl = document.getElementById("alertLevel");
+
+const GUARD_BEHAVIOR = {
+  FIXED: "fixed",
+  PATROL: "patrol",
+  INVESTIGATE: "investigate",
+  TRACE: "trace"
+};
+
+const ALERT_LEVEL = {
+  CALM: { name: "平静", value: 0, color: "#4f7f6a" },
+  CURIOUS: { name: "警觉", value: 1, color: "#d7bd77" },
+  SUSPICIOUS: { name: "怀疑", value: 2, color: "#e67e22" },
+  ALERT: { name: "警戒", value: 3, color: "#d14c3f" }
+};
 const waitBtn = document.getElementById("waitBtn");
 const repairBtn = document.getElementById("repairBtn");
 const hintBtn = document.getElementById("hintBtn");
@@ -45,7 +60,7 @@ const levels = [
     keys: [{ x: 1, y: 5 }],
     exhibits: [{ x: 6, y: 1, fixed: false }],
     player: { x: 0, y: 6 },
-    guards: [{ path: [{ x: 5, y: 2 }, { x: 6, y: 2 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0 }],
+    guards: [{ path: [{ x: 5, y: 2 }, { x: 6, y: 2 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0, behavior: "fixed", hearingRange: 4 }],
     exit: { x: 7, y: 0 }
   },
   {
@@ -56,7 +71,7 @@ const levels = [
     exhibits: [{ x: 6, y: 5, fixed: false }],
     player: { x: 0, y: 6 },
     guards: [
-      { path: [{ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 3 }, { x: 3, y: 3 }], step: 0 }
+      { path: [{ x: 3, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 3 }, { x: 3, y: 3 }], step: 0, behavior: "patrol", hearingRange: 5 }
     ],
     exit: { x: 7, y: 6 }
   },
@@ -68,8 +83,8 @@ const levels = [
     exhibits: [{ x: 0, y: 0, fixed: false }, { x: 7, y: 6, fixed: false }],
     player: { x: 0, y: 6 },
     guards: [
-      { path: [{ x: 5, y: 1 }, { x: 6, y: 1 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0 },
-      { path: [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }], step: 0 }
+      { path: [{ x: 5, y: 1 }, { x: 6, y: 1 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0, behavior: "investigate", hearingRange: 5 },
+      { path: [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }], step: 0, behavior: "fixed", hearingRange: 3 }
     ],
     exit: { x: 4, y: 0 }
   },
@@ -81,7 +96,7 @@ const levels = [
     exhibits: [{ x: 7, y: 2, fixed: false }],
     player: { x: 0, y: 6 },
     guards: [
-      { path: [{ x: 5, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0 }
+      { path: [{ x: 5, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0, behavior: "trace", hearingRange: 4 }
     ],
     exit: { x: 7, y: 0 },
     mechanisms: {
@@ -98,8 +113,8 @@ const levels = [
     exhibits: [{ x: 7, y: 1, fixed: false }, { x: 7, y: 6, fixed: false }],
     player: { x: 0, y: 6 },
     guards: [
-      { path: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 4 }, { x: 2, y: 4 }], step: 0 },
-      { path: [{ x: 6, y: 2 }, { x: 6, y: 3 }, { x: 7, y: 3 }, { x: 7, y: 2 }], step: 0 }
+      { path: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 4 }, { x: 2, y: 4 }], step: 0, behavior: "investigate", hearingRange: 6 },
+      { path: [{ x: 6, y: 2 }, { x: 6, y: 3 }, { x: 7, y: 3 }, { x: 7, y: 2 }], step: 0, behavior: "trace", hearingRange: 4 }
     ],
     exit: { x: 7, y: 0 },
     mechanisms: {
@@ -109,6 +124,20 @@ const levels = [
       screens: [{ x: 3, y: 3 }],
       lights: [{ x: 5, y: 3, active: false }]
     }
+  },
+  {
+    name: "六",
+    walls: ["2,0", "2,1", "2,2", "2,3", "5,3", "5,4", "5,5", "5,6"],
+    doors: [{ x: 2, y: 4, open: false }, { x: 5, y: 2, open: false }],
+    keys: [{ x: 0, y: 3 }, { x: 7, y: 3 }],
+    exhibits: [{ x: 3, y: 1, fixed: false }, { x: 4, y: 5, fixed: false }],
+    player: { x: 0, y: 0 },
+    guards: [
+      { path: [{ x: 3, y: 3 }, { x: 4, y: 3 }, { x: 4, y: 4 }, { x: 3, y: 4 }], step: 0, behavior: "patrol", hearingRange: 5 },
+      { path: [{ x: 1, y: 5 }, { x: 1, y: 6 }, { x: 2, y: 6 }, { x: 2, y: 5 }], step: 0, behavior: "investigate", hearingRange: 5 },
+      { path: [{ x: 6, y: 0 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 0 }], step: 0, behavior: "trace", hearingRange: 4 }
+    ],
+    exit: { x: 7, y: 6 }
   }
 ];
 
@@ -127,18 +156,19 @@ const chapters = [
   },
   {
     id: 2,
-    name: "终极挑战",
-    description: "最终修复任务，考验所有技能",
-    levelIndices: [4]
+    name: "行为编排",
+    description: "遭遇拥有复杂行为模式的巡逻员",
+    levelIndices: [4, 5]
   }
 ];
 
 const levelDescriptions = [
   { brief: "简单展厅，一个展柜需要修复，小心巡逻员视线", optimalActions: 12 },
-  { brief: "需要找到钥匙开门，才能到达展柜", optimalActions: 15 },
-  { brief: "两个展柜与双巡逻员的协调挑战", optimalActions: 22 },
-  { brief: "利用压力板开门与熄灯开关缩短巡逻视野", optimalActions: 16 },
-  { brief: "两个展柜、多个门锁与密集巡逻的终极考验", optimalActions: 28 }
+  { brief: "需要找到钥匙开门，注意往返巡逻的守卫", optimalActions: 15 },
+  { brief: "两个展柜与会调查声响的巡逻员", optimalActions: 24 },
+  { brief: "利用压力板开门，小心会追踪开门痕迹的守卫", optimalActions: 18 },
+  { brief: "两个展柜、多个门锁，巡逻员会调查声响并追踪痕迹", optimalActions: 32 },
+  { brief: "三个巡逻员的终极挑战：往返巡逻、听觉调查、痕迹追踪", optimalActions: 38 }
 ];
 
 const CHAPTER_STAR_KEY = "museum_chapter_stars";
@@ -362,12 +392,29 @@ function snapshotState(action) {
     done: state.done,
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
+    alertLevel: state.alertLevel,
+    soundSources: state.soundSources.map(s => ({ ...s, position: { ...s.position } })),
     level: {
       walls: [...state.level.walls],
       doors: state.level.doors.map(d => ({ ...d })),
       keys: state.level.keys.map(k => ({ ...k })),
       exhibits: state.level.exhibits.map(e => ({ ...e })),
-      guards: state.level.guards.map(g => ({ path: g.path.map(p => ({ ...p })), step: g.step })),
+      guards: state.level.guards.map(g => ({
+        path: g.path.map(p => ({ ...p })),
+        step: g.step,
+        behavior: g.behavior,
+        direction: g.direction,
+        originalPath: g.originalPath.map(p => ({ ...p })),
+        state: g.state,
+        investigateTarget: g.investigateTarget ? { ...g.investigateTarget } : null,
+        investigateTimer: g.investigateTimer,
+        traceTarget: g.traceTarget ? { ...g.traceTarget } : null,
+        tracePath: g.tracePath.map(p => ({ ...p })),
+        alertLevel: g.alertLevel,
+        hearingRange: g.hearingRange,
+        id: g.id
+      })),
+      openedDoors: state.level.openedDoors ? state.level.openedDoors.map(d => ({ ...d })) : [],
       exit: state.level.exit ? { ...state.level.exit } : null,
       player: state.level.player ? { ...state.level.player } : null,
       name: state.level.name,
@@ -391,6 +438,8 @@ function freshState(index) {
   level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
   level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
   level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
+  level.guards = initializeGuards(level.guards);
+  level.openedDoors = [];
   return {
     levelIndex: index,
     level,
@@ -400,9 +449,30 @@ function freshState(index) {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    alertLevel: 0,
+    alertDecayTimer: 0,
+    soundSources: [],
     log: [`第${level.name}展厅夜巡开始，避开视线完成修复。`],
     history: []
   };
+}
+
+function initializeGuards(guards) {
+  return guards.map((guard, index) => ({
+    path: guard.path || [],
+    step: guard.step || 0,
+    behavior: guard.behavior || GUARD_BEHAVIOR.FIXED,
+    direction: guard.direction || 1,
+    originalPath: guard.path ? [...guard.path] : [],
+    state: "patrol",
+    investigateTarget: null,
+    investigateTimer: 0,
+    traceTarget: null,
+    tracePath: [],
+    alertLevel: 0,
+    hearingRange: guard.hearingRange || 4,
+    id: index
+  }));
 }
 
 function freshStateFromLevel(levelData) {
@@ -410,11 +480,12 @@ function freshStateFromLevel(levelData) {
   level.keys = level.keys.map((k) => ({ ...k, taken: false }));
   level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
   level.doors = level.doors.map((d) => ({ ...d, open: false }));
-  level.guards = level.guards.map((g) => ({ path: [...g.path], step: 0 }));
+  level.guards = initializeGuards(level.guards || []);
   level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
   level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
   level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
   level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
+  level.openedDoors = [];
   return {
     levelIndex: -1,
     level,
@@ -424,6 +495,9 @@ function freshStateFromLevel(levelData) {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    alertLevel: 0,
+    alertDecayTimer: 0,
+    soundSources: [],
     log: [`${level.name}关卡夜巡开始，避开视线完成修复。`],
     history: []
   };
@@ -450,7 +524,8 @@ function startTutorial() {
   level.keys = level.keys.map((k) => ({ ...k, taken: false }));
   level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
   level.doors = level.doors.map((d) => ({ ...d, open: false }));
-  level.guards = level.guards.map((g) => ({ path: [...g.path], step: 0 }));
+  level.guards = initializeGuards(level.guards || []);
+  level.openedDoors = [];
   state = {
     levelIndex: -2,
     level,
@@ -460,6 +535,9 @@ function startTutorial() {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    alertLevel: 0,
+    alertDecayTimer: 0,
+    soundSources: [],
     log: ["欢迎来到博物馆！让我们学习如何成为一名优秀的夜间修复师。"],
     history: []
   };
@@ -603,6 +681,8 @@ function restartTutorialStep(reason = "manual") {
     level.exhibits[0].fixed = true;
   }
 
+  level.guards = initializeGuards(level.guards || []);
+  level.openedDoors = [];
   state = {
     levelIndex: -2,
     level,
@@ -612,6 +692,9 @@ function restartTutorialStep(reason = "manual") {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    alertLevel: 0,
+    alertDecayTimer: 0,
+    soundSources: [],
     log: [
       ...state.log,
       reason === "guard" ? "⚠️ 被巡逻员发现了！回到安全位置重试。" : "重试当前教学步骤。"
@@ -773,6 +856,199 @@ function init() {
   recordHistory("开局");
   render();
   renderDailyInfo();
+}
+
+function emitSound(source, loudness, position) {
+  const sound = {
+    source,
+    loudness,
+    position: { ...position },
+    turn: state.history.length
+  };
+  state.soundSources.push(sound);
+  state.soundSources = state.soundSources.slice(-5);
+
+  state.level.guards.forEach((guard) => {
+    if (guard.state === "investigate" || guard.state === "trace") return;
+    const distance = Math.abs(guard.path[guard.step].x - position.x) + Math.abs(guard.path[guard.step].y - position.y);
+    if (distance <= guard.hearingRange + loudness) {
+      const alertIncrease = Math.max(1, Math.ceil((guard.hearingRange + loudness - distance) / 2));
+      guard.alertLevel = Math.min(3, guard.alertLevel + alertIncrease);
+      if (guard.behavior === GUARD_BEHAVIOR.INVESTIGATE && guard.alertLevel >= 1) {
+        guard.state = "investigate";
+        guard.investigateTarget = { ...position };
+        guard.investigateTimer = 3;
+        addLog(`🔊 巡逻员似乎听到了什么，朝${source ? source + "方向" : "声响处"}看去...`);
+      }
+    }
+  });
+
+  updateGlobalAlertLevel();
+}
+
+function updateGlobalAlertLevel() {
+  let maxAlert = 0;
+  state.level.guards.forEach((guard) => {
+    maxAlert = Math.max(maxAlert, guard.alertLevel);
+  });
+  state.alertLevel = maxAlert;
+}
+
+function decayAlertLevels() {
+  state.level.guards.forEach((guard) => {
+    if (guard.alertLevel > 0 && guard.state === "patrol") {
+      guard.alertLevel = Math.max(0, guard.alertLevel - 1);
+    }
+  });
+  updateGlobalAlertLevel();
+}
+
+function recordOpenedDoor(door) {
+  const existing = state.level.openedDoors.find((d) => samePoint(d, door));
+  if (!existing) {
+    state.level.openedDoors.push({
+      x: door.x,
+      y: door.y,
+      turn: state.history.length
+    });
+  }
+}
+
+function getGuardCurrentPosition(guard) {
+  if (guard.state === "investigate" && guard.investigateTarget) {
+    return guard.path[guard.step];
+  }
+  return guard.path[guard.step];
+}
+
+function getGuardNextDirection(guard) {
+  if (guard.state === "investigate" && guard.investigateTarget) {
+    const current = guard.path[guard.step];
+    const target = guard.investigateTarget;
+    const dx = Math.sign(target.x - current.x);
+    const dy = Math.sign(target.y - current.y);
+    if (Math.abs(target.x - current.x) >= Math.abs(target.y - current.y)) {
+      return { dx, dy: 0 };
+    }
+    return { dx: 0, dy };
+  }
+
+  if (guard.state === "trace" && guard.tracePath.length > 0) {
+    const current = guard.path[guard.step];
+    const target = guard.tracePath[0];
+    const dx = Math.sign(target.x - current.x);
+    const dy = Math.sign(target.y - current.y);
+    return { dx, dy };
+  }
+
+  if (guard.behavior === GUARD_BEHAVIOR.PATROL) {
+    const nextStep = guard.step + guard.direction;
+    if (nextStep >= guard.path.length || nextStep < 0) {
+      guard.direction *= -1;
+    }
+    const nextIndex = guard.step + guard.direction;
+    const current = guard.path[guard.step];
+    const next = guard.path[nextIndex];
+    return {
+      dx: Math.sign(next.x - current.x),
+      dy: Math.sign(next.y - current.y)
+    };
+  }
+
+  const current = guard.path[guard.step];
+  const next = guard.path[(guard.step + 1) % guard.path.length];
+  return {
+    dx: Math.sign(next.x - current.x),
+    dy: Math.sign(next.y - current.y)
+  };
+}
+
+function moveGuard(guard) {
+  if (guard.state === "investigate") {
+    moveGuardTowardsTarget(guard, guard.investigateTarget);
+    guard.investigateTimer -= 1;
+    if (guard.investigateTimer <= 0 || samePoint(guard.path[guard.step], guard.investigateTarget)) {
+      guard.state = "patrol";
+      guard.investigateTarget = null;
+      guard.alertLevel = Math.max(0, guard.alertLevel - 1);
+      addLog("巡逻员没有发现异常，继续巡逻。");
+    }
+    return;
+  }
+
+  if (guard.state === "trace") {
+    if (guard.tracePath.length > 0) {
+      const target = guard.tracePath[0];
+      moveGuardTowardsTarget(guard, target);
+      if (samePoint(guard.path[guard.step], target)) {
+        guard.tracePath.shift();
+      }
+    }
+    if (guard.tracePath.length === 0) {
+      guard.state = "patrol";
+      guard.traceTarget = null;
+      addLog("巡逻员检查了可疑的门，继续巡逻。");
+    }
+    return;
+  }
+
+  if (guard.behavior === GUARD_BEHAVIOR.PATROL) {
+    let nextStep = guard.step + guard.direction;
+    if (nextStep >= guard.path.length || nextStep < 0) {
+      guard.direction *= -1;
+      nextStep = guard.step + guard.direction;
+    }
+    guard.step = nextStep;
+  } else {
+    guard.step = (guard.step + 1) % guard.path.length;
+  }
+
+  checkForDoorTraces(guard);
+}
+
+function moveGuardTowardsTarget(guard, target) {
+  const current = guard.path[guard.step];
+  const dx = Math.sign(target.x - current.x);
+  const dy = Math.sign(target.y - current.y);
+
+  let newX = current.x;
+  let newY = current.y;
+
+  if (Math.abs(target.x - current.x) >= Math.abs(target.y - current.y) && dx !== 0) {
+    newX = current.x + dx;
+  } else if (dy !== 0) {
+    newY = current.y + dy;
+  } else if (dx !== 0) {
+    newX = current.x + dx;
+  }
+
+  if (!isWall({ x: newX, y: newY })) {
+    guard.path[guard.step] = { x: newX, y: newY };
+  }
+}
+
+function checkForDoorTraces(guard) {
+  if (guard.behavior !== GUARD_BEHAVIOR.TRACE) return;
+  if (guard.state === "investigate" || guard.state === "trace") return;
+
+  const currentPos = guard.path[guard.step];
+  for (const openedDoor of state.level.openedDoors) {
+    const distance = Math.abs(currentPos.x - openedDoor.x) + Math.abs(currentPos.y - openedDoor.y);
+    if (distance <= 2) {
+      guard.state = "trace";
+      guard.traceTarget = { x: openedDoor.x, y: openedDoor.y };
+      guard.tracePath = [{ x: openedDoor.x, y: openedDoor.y }];
+      guard.alertLevel = Math.min(3, guard.alertLevel + 2);
+      addLog(`🚪 巡逻员发现了被打开的门，前去检查！`);
+      updateGlobalAlertLevel();
+      break;
+    }
+  }
+}
+
+function getAlertLevelInfo(value) {
+  const levels = [ALERT_LEVEL.CALM, ALERT_LEVEL.CURIOUS, ALERT_LEVEL.SUSPICIOUS, ALERT_LEVEL.ALERT];
+  return levels[Math.min(value, levels.length - 1)];
 }
 
 function bindControls() {
@@ -939,21 +1215,39 @@ function move(dx, dy) {
 
   let action = screen ? "推屏风并" + getDirectionName(dx, dy) : getDirectionName(dx, dy);
   const door = doorAt(next);
+  let madeSound = true;
+  let soundLoudness = 1;
+  let soundSource = "移动";
+
   if (door && !door.open) {
     if (state.keys > 0) {
       state.keys -= 1;
       door.open = true;
       action = "开门并" + action;
       addLog("用钥匙打开了侧门。");
+      recordOpenedDoor(door);
+      soundLoudness = 3;
+      soundSource = "开门";
     } else {
       addLog("门锁着，需要先找到钥匙。");
       render();
       return;
     }
   }
+
+  if (screen) {
+    soundLoudness = 2;
+    soundSource = "推屏风";
+  }
+
   state.player = next;
   state.ap -= 1;
   gameplayMetrics.currentActions += 1;
+
+  if (madeSound) {
+    emitSound(soundSource, soundLoudness, state.player);
+  }
+
   pickKey();
   activatePressurePlates();
   activateLights();
@@ -1012,6 +1306,7 @@ function repair() {
   state.ap -= 1;
   gameplayMetrics.currentActions += 1;
   addLog("展品被悄悄修回了正确状态。");
+  emitSound("修复", 2, state.player);
 
   if (tutorialState.active) {
     checkTutorialStep();
@@ -1043,12 +1338,17 @@ function endTurn() {
     tutorialState.hasWaited = true;
   }
 
+  emitSound("等待", 0, state.player);
+
   state.ap = 4;
   gameplayMetrics.currentActions += 1;
   state.visionReduced = state.pendingVisionReduction;
   state.pendingVisionReduction = false;
+
+  decayAlertLevels();
+
   state.level.guards.forEach((guard) => {
-    guard.step = (guard.step + 1) % guard.path.length;
+    moveGuard(guard);
   });
   addLog("巡逻员换了一段路线。");
   if (seenByGuard()) {
@@ -1225,13 +1525,15 @@ function visionSet() {
   const set = new Set();
   const m = getMechanisms();
   const screenSet = new Set(m.screens.map(s => pointKey(s)));
-  const maxRange = state.visionReduced ? 1 : 2;
   state.level.guards.forEach((guard) => {
-    const pos = guard.path[guard.step];
+    const pos = getGuardCurrentPosition(guard);
     set.add(pointKey(pos));
-    const next = guard.path[(guard.step + 1) % guard.path.length];
-    const dx = Math.sign(next.x - pos.x);
-    const dy = Math.sign(next.y - pos.y);
+    const baseRange = state.visionReduced ? 1 : 2;
+    const alertBonus = Math.floor(guard.alertLevel / 2);
+    const maxRange = baseRange + alertBonus;
+    const dir = getGuardNextDirection(guard);
+    const dx = dir.dx;
+    const dy = dir.dy;
     for (let i = 1; i <= maxRange; i += 1) {
       const point = { x: pos.x + dx * i, y: pos.y + dy * i };
       if (!inside(point) || isWall(point) || screenSet.has(pointKey(point))) break;
@@ -1362,6 +1664,18 @@ function render() {
   apEl.textContent = state.ap;
   keysEl.textContent = state.keys;
   fixedEl.textContent = `${state.level.exhibits.filter((item) => item.fixed).length}/${state.level.exhibits.length}`;
+
+  const alertInfo = getAlertLevelInfo(state.alertLevel);
+  if (alertLevelEl) {
+    alertLevelEl.innerHTML = `
+      <span class="alert-label">警觉程度</span>
+      <span class="alert-level" style="color: ${alertInfo.color}">${alertInfo.name}</span>
+      <span class="alert-dots">
+        ${[0, 1, 2, 3].map(i => `<span class="alert-dot ${i <= state.alertLevel ? 'active' : ''}" style="background: ${i <= state.alertLevel ? alertInfo.color : '#3c3642'}"></span>`).join('')}
+      </span>
+    `;
+  }
+
   renderLevelButtons();
   [...levelButtonsEl.children].forEach((button, index) => {
     button.classList.toggle("active", index === state.levelIndex);
@@ -1378,7 +1692,14 @@ function render() {
 }
 
 function renderBoard() {
-  const guards = state.level.guards.map((guard) => guard.path[guard.step]);
+  const guards = state.level.guards.map((guard) => ({
+    pos: guard.path[guard.step],
+    alertLevel: guard.alertLevel,
+    state: guard.state,
+    investigateTarget: guard.investigateTarget,
+    traceTarget: guard.traceTarget,
+    id: guard.id
+  }));
   const vision = visionSet();
   boardEl.innerHTML = "";
 
@@ -1405,6 +1726,17 @@ function renderBoard() {
       hintHighlights.push(p);
     }
   }
+
+  const investigateTargets = new Set();
+  const traceTargets = new Set();
+  guards.forEach(g => {
+    if (g.investigateTarget) {
+      investigateTargets.add(pointKey(g.investigateTarget));
+    }
+    if (g.traceTarget) {
+      traceTargets.add(pointKey(g.traceTarget));
+    }
+  });
 
   for (let y = 0; y < 7; y += 1) {
     for (let x = 0; x < 8; x += 1) {
@@ -1451,7 +1783,20 @@ function renderBoard() {
         label.textContent = "出口";
       }
       if (vision.has(pointKey(point))) tile.classList.add("vision");
-      if (guards.some((guard) => samePoint(guard, point))) tile.classList.add("guard");
+      if (investigateTargets.has(pointKey(point))) tile.classList.add("investigate-target");
+      if (traceTargets.has(pointKey(point))) tile.classList.add("trace-target");
+
+      const guardHere = guards.find((g) => samePoint(g.pos, point));
+      if (guardHere) {
+        tile.classList.add("guard");
+        tile.classList.add(`guard-alert-${guardHere.alertLevel}`);
+        if (guardHere.state === "investigate") {
+          tile.classList.add("guard-investigating");
+        }
+        if (guardHere.state === "trace") {
+          tile.classList.add("guard-tracing");
+        }
+      }
       if (samePoint(state.player, point)) tile.classList.add("player");
 
       if (tutorialHighlights.some(p => samePoint(p, point))) {
