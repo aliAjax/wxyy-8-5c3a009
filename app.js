@@ -1533,8 +1533,9 @@ function tryGenerateLevel(rng, dateKey) {
   if (!mainPath) return null;
   for (const p of mainPath) reserved.add(pointKey(p));
 
-  const useDoor = rng() < 0.75;
-  if (useDoor && mainPath.length >= 7) {
+  if (mainPath.length < 7) return null;
+
+  {
     const numDoors = rng() < 0.3 ? 2 : 1;
     let placedDoors = 0;
     let lastDoorIdx = 1;
@@ -1595,7 +1596,7 @@ function tryGenerateLevel(rng, dateKey) {
     }
   }
 
-  if (doors.length !== keys.length && keys.length < doors.length) {
+  if (doors.length === 0 || keys.length < doors.length) {
     return null;
   }
 
