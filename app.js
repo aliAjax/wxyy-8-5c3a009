@@ -1121,6 +1121,7 @@ function bfsReachable(walls, doors, start, considerDoorsClosed = true) {
   const queue = [{ x: start.x, y: start.y }];
   reachable.add(pointKey(start));
   const wallSet = new Set(walls);
+  const doorSet = new Set(doors.map((d) => pointKey(d)));
 
   while (queue.length > 0) {
     const cur = queue.shift();
@@ -1137,10 +1138,7 @@ function bfsReachable(walls, doors, start, considerDoorsClosed = true) {
       if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
       if (reachable.has(nkey)) continue;
       if (wallSet.has(nkey)) continue;
-      if (considerDoorsClosed) {
-        const hasDoor = doors.some((d) => d.x === nx && d.y === ny);
-        if (hasDoor) continue;
-      }
+      if (considerDoorsClosed && doorSet.has(nkey)) continue;
       reachable.add(nkey);
       queue.push({ x: nx, y: ny });
     }
@@ -1180,6 +1178,263 @@ function bfsPath(walls, start, end, doorsOpen = []) {
   return null;
 }
 
+function getGuardPositionsAtStep(guards, step) {
+  return guards.map((g) => g.path[step % g.path.length]);
+}
+
+function getGuardVisionAtStep(guards, step, walls) {
+  const vision = new Set();
+  const wallSet = new Set(walls);
+  guards.forEach((guard) => {
+    const pos = guard.path[step % guard.path.length];
+    vision.add(pointKey(pos));
+    const nextPos = guard.path[(step + 1) % guard.path.length];
+    const dx = Math.sign(nextPos.x - pos.x);
+    const dy = Math.sign(nextPos.y - pos.y);
+    for (let i = 1; i <= 2; i++) {
+      const p = { x: pos.x + dx * i, y: pos.y + dy * i };
+      if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+      if (wallSet.has(pointKey(p))) break;
+      vision.add(pointKey(p));
+    }
+  });
+  return vision;
+}
+
+function gcd(a, b) {
+  while (b) {
+    [a, b] = [b, a % b];
+  }
+  return a;
+}
+
+function lcm(a, b) {
+  return (a * b) / gcd(a, b);
+}
+
+function getGuardCycleLength(guards) {
+  if (guards.length === 0) return 1;
+  return guards.reduce((acc, g) => lcm(acc, g.path.length), 1);
+}
+
+function exhibitMask(exhibits, fixedFlags) {
+  let mask = 0;
+  for (let i = 0; i < exhibits.length; i++) {
+    if (fixedFlags[i]) mask |= 1 << i;
+  }
+  return mask;
+}
+
+function allExhibitsFixed(mask, numExhibits) {
+  return mask === (1 << numExhibits) - 1;
+}
+
+function isAdjacent(a, b) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) <= 1;
+}
+
+function canPassWallDoor(pos, walls, doors, keys, keysOnGround, doorsOpen) {
+  const pk = pointKey(pos);
+  if (walls.includes(pk)) return { pass: false };
+  const doorIdx = doors.findIndex((d) => d.x === pos.x && d.y === pos.y);
+  if (doorIdx >= 0 && !doorsOpen[doorIdx]) {
+    if (keys > 0) {
+      return { pass: true, useKey: true, doorIdx };
+    }
+    return { pass: false };
+  }
+  return { pass: true };
+}
+
+function verifyLevelSolvable(level) {
+  const { walls, doors, keys: keyItems, exhibits, guards, player: startPos, exit } = level;
+  const numExhibits = exhibits.length;
+  const numDoors = doors.length;
+  const cycleLen = getGuardCycleLength(guards);
+
+  const doorsOpenInit = new Array(numDoors).fill(false);
+  const keysTakenInit = new Array(keyItems.length).fill(false);
+  const fixedInit = new Array(numExhibits).fill(false);
+
+  function stateKey(pos, keysCount, exhibitBitmask, step) {
+    return `${pos.x},${pos.y}|${keysCount}|${exhibitBitmask}|${step % cycleLen}`;
+  }
+
+  const visited = new Set();
+  const initialKey = stateKey(startPos, 0, 0, 0);
+  visited.add(initialKey);
+
+  const queue = [
+    {
+      pos: { ...startPos },
+      keys: 0,
+      keysTaken: [...keysTakenInit],
+      doorsOpen: [...doorsOpenInit],
+      fixed: [...fixedInit],
+      step: 0,
+      ap: 4
+    }
+  ];
+
+  let iterations = 0;
+  const maxIterations = 50000;
+
+  while (queue.length > 0 && iterations < maxIterations) {
+    iterations++;
+    const cur = queue.shift();
+
+    const mask = exhibitMask(exhibits, cur.fixed);
+    if (allExhibitsFixed(mask, numExhibits) && cur.pos.x === exit.x && cur.pos.y === exit.y) {
+      return true;
+    }
+
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.pos.x + dx;
+      const ny = cur.pos.y + dy;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+
+      const newPos = { x: nx, y: ny };
+      const pk = pointKey(newPos);
+      if (walls.includes(pk)) continue;
+
+      let newKeys = cur.keys;
+      const newDoorsOpen = [...cur.doorsOpen];
+      const newKeysTaken = [...cur.keysTaken];
+
+      const doorIdx = doors.findIndex((d) => d.x === nx && d.y === ny);
+      if (doorIdx >= 0 && !newDoorsOpen[doorIdx]) {
+        if (newKeys <= 0) continue;
+        newKeys -= 1;
+        newDoorsOpen[doorIdx] = true;
+      }
+
+      const vision = getGuardVisionAtStep(guards, cur.step, walls);
+      if (vision.has(pk)) continue;
+
+      for (let i = 0; i < keyItems.length; i++) {
+        if (!newKeysTaken[i] && keyItems[i].x === nx && keyItems[i].y === ny) {
+          newKeys += 1;
+          newKeysTaken[i] = true;
+        }
+      }
+
+      const newFixed = [...cur.fixed];
+      const newMask = exhibitMask(exhibits, newFixed);
+      const sk = stateKey(newPos, newKeys, newMask, cur.step);
+
+      if (!visited.has(sk)) {
+        visited.add(sk);
+        const newAp = cur.ap - 1;
+
+        if (newAp <= 0) {
+          const nextStep = (cur.step + 1) % cycleLen;
+          const nextVision = getGuardVisionAtStep(guards, nextStep, walls);
+          if (!nextVision.has(pk)) {
+            const nextSk = stateKey(newPos, newKeys, newMask, nextStep);
+            if (!visited.has(nextSk)) {
+              visited.add(nextSk);
+              queue.push({
+                pos: newPos,
+                keys: newKeys,
+                keysTaken: newKeysTaken,
+                doorsOpen: newDoorsOpen,
+                fixed: newFixed,
+                step: nextStep,
+                ap: 4
+              });
+            }
+          }
+        } else {
+          queue.push({
+            pos: newPos,
+            keys: newKeys,
+            keysTaken: newKeysTaken,
+            doorsOpen: newDoorsOpen,
+            fixed: newFixed,
+            step: cur.step,
+            ap: newAp
+          });
+        }
+      }
+    }
+
+    for (let i = 0; i < numExhibits; i++) {
+      if (!cur.fixed[i] && isAdjacent(cur.pos, exhibits[i])) {
+        const newFixed = [...cur.fixed];
+        newFixed[i] = true;
+        const newMask = exhibitMask(exhibits, newFixed);
+        const sk = stateKey(cur.pos, cur.keys, newMask, cur.step);
+
+        if (!visited.has(sk)) {
+          visited.add(sk);
+          const newAp = cur.ap - 1;
+
+          if (newAp <= 0) {
+            const nextStep = (cur.step + 1) % cycleLen;
+            const nextVision = getGuardVisionAtStep(guards, nextStep, walls);
+            const pk = pointKey(cur.pos);
+            if (!nextVision.has(pk)) {
+              const nextSk = stateKey(cur.pos, cur.keys, newMask, nextStep);
+              if (!visited.has(nextSk)) {
+                visited.add(nextSk);
+                queue.push({
+                  pos: { ...cur.pos },
+                  keys: cur.keys,
+                  keysTaken: [...cur.keysTaken],
+                  doorsOpen: [...cur.doorsOpen],
+                  fixed: newFixed,
+                  step: nextStep,
+                  ap: 4
+                });
+              }
+            }
+          } else {
+            queue.push({
+              pos: { ...cur.pos },
+              keys: cur.keys,
+              keysTaken: [...cur.keysTaken],
+              doorsOpen: [...cur.doorsOpen],
+              fixed: newFixed,
+              step: cur.step,
+              ap: newAp
+            });
+          }
+        }
+      }
+    }
+
+    {
+      const nextStep = (cur.step + 1) % cycleLen;
+      const nextVision = getGuardVisionAtStep(guards, nextStep, walls);
+      const pk = pointKey(cur.pos);
+      if (!nextVision.has(pk)) {
+        const mask = exhibitMask(exhibits, cur.fixed);
+        const nextSk = stateKey(cur.pos, cur.keys, mask, nextStep);
+        if (!visited.has(nextSk)) {
+          visited.add(nextSk);
+          queue.push({
+            pos: { ...cur.pos },
+            keys: cur.keys,
+            keysTaken: [...cur.keysTaken],
+            doorsOpen: [...cur.doorsOpen],
+            fixed: [...cur.fixed],
+            step: nextStep,
+            ap: 4
+          });
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 function generateDailyLevel(dateKey) {
   const rng = createDailyRNG(dateKey);
   let attempts = 0;
@@ -1188,12 +1443,18 @@ function generateDailyLevel(dateKey) {
     attempts++;
     try {
       const level = tryGenerateLevel(rng, dateKey);
-      if (level) return level;
+      if (level) {
+        if (verifyLevelSolvable(level)) {
+          return level;
+        }
+      }
     } catch (e) {
     }
   }
 
-  return fallbackLevel(dateKey);
+  const fb = fallbackLevel(dateKey);
+  if (verifyLevelSolvable(fb)) return fb;
+  return fb;
 }
 
 function fallbackLevel(dateKey) {
@@ -1230,16 +1491,6 @@ function tryGenerateLevel(rng, dateKey) {
     { x: BOARD_W - 1, y: BOARD_H - 1 }
   ];
 
-  const edgeCells = [];
-  for (let x = 0; x < BOARD_W; x++) {
-    edgeCells.push({ x, y: 0 });
-    edgeCells.push({ x, y: BOARD_H - 1 });
-  }
-  for (let y = 1; y < BOARD_H - 1; y++) {
-    edgeCells.push({ x: 0, y });
-    edgeCells.push({ x: BOARD_W - 1, y });
-  }
-
   const shuffledCorners = shuffle(rng, corners);
   const player = { ...shuffledCorners[0] };
   const exit = { ...shuffledCorners[1] };
@@ -1261,7 +1512,7 @@ function tryGenerateLevel(rng, dateKey) {
 
   const pathSet = new Set(mainPath.map((p) => pointKey(p)));
 
-  const numWalls = randomInt(rng, 6, 10);
+  const numWalls = randomInt(rng, 5, 9);
   let wallAttempts = 0;
   while (walls.length < numWalls && wallAttempts < 200) {
     wallAttempts++;
@@ -1282,42 +1533,82 @@ function tryGenerateLevel(rng, dateKey) {
   if (!mainPath) return null;
   for (const p of mainPath) reserved.add(pointKey(p));
 
-  const useDoor = rng() < 0.8;
-  if (useDoor && mainPath.length >= 6) {
-    const doorIdx = randomInt(rng, 2, mainPath.length - 3);
-    const doorPos = mainPath[doorIdx];
-    doors.push({ x: doorPos.x, y: doorPos.y, open: false });
-    reserved.add(pointKey(doorPos));
+  const useDoor = rng() < 0.75;
+  if (useDoor && mainPath.length >= 7) {
+    const numDoors = rng() < 0.3 ? 2 : 1;
+    let placedDoors = 0;
+    let lastDoorIdx = 1;
 
-    const beforeDoor = mainPath.slice(0, doorIdx);
-    const keyCandidates = [];
-    for (const p of allCells) {
-      const pk = pointKey(p);
-      if (reserved.has(pk)) continue;
-      if (walls.includes(pk)) continue;
-      const testWalls = [...walls];
-      const testDoors = doors.map((d) => ({ ...d }));
-      const reachable = bfsReachable(testWalls, testDoors, player, true);
-      if (reachable.has(pk)) {
-        keyCandidates.push(p);
+    for (let d = 0; d < numDoors; d++) {
+      if (mainPath.length - lastDoorIdx < 5) break;
+
+      const minIdx = lastDoorIdx + 2;
+      const maxIdx = mainPath.length - 3;
+      if (minIdx >= maxIdx) break;
+
+      const doorIdx = randomInt(rng, minIdx, maxIdx);
+      const doorPos = mainPath[doorIdx];
+
+      doors.push({ x: doorPos.x, y: doorPos.y, open: false });
+      reserved.add(pointKey(doorPos));
+
+      const beforeDoorArea = mainPath.slice(0, doorIdx);
+      const keyCandidates = [];
+
+      const doorsUpToNow = doors.slice(0, d);
+      const reachBeforeDoor = bfsReachable(walls, doorsUpToNow, player, true);
+
+      for (const p of allCells) {
+        const pk = pointKey(p);
+        if (reserved.has(pk)) continue;
+        if (walls.includes(pk)) continue;
+        if (doors.some((dd) => dd.x === p.x && dd.y === p.y)) continue;
+        if (!reachBeforeDoor.has(pk)) continue;
+
+        let adjCount = 0;
+        const dirs = [
+          [1, 0],
+          [-1, 0],
+          [0, 1],
+          [0, -1]
+        ];
+        for (const [dxx, dyy] of dirs) {
+          const nnx = p.x + dxx;
+          const nny = p.y + dyy;
+          if (nnx >= 0 && nnx < BOARD_W && nny >= 0 && nny < BOARD_H) {
+            if (!walls.includes(`${nnx},${nny}`)) adjCount++;
+          }
+        }
+        if (adjCount >= 2) keyCandidates.push(p);
       }
-    }
-    if (keyCandidates.length > 0) {
-      const key = randomChoice(rng, keyCandidates);
-      keys.push({ x: key.x, y: key.y, taken: false });
-      reserved.add(pointKey(key));
-    } else {
-      doors.pop();
+
+      if (keyCandidates.length > 0) {
+        const key = randomChoice(rng, keyCandidates);
+        keys.push({ x: key.x, y: key.y, taken: false });
+        reserved.add(pointKey(key));
+        placedDoors++;
+        lastDoorIdx = doorIdx;
+      } else {
+        doors.pop();
+        break;
+      }
     }
   }
 
-  const numExhibits = randomInt(rng, 1, 3);
+  if (doors.length !== keys.length && keys.length < doors.length) {
+    return null;
+  }
+
+  const reachAllOpen = bfsReachable(walls, doors, player, false);
+
+  const numExhibits = randomInt(rng, 1, 2);
   const exhibitCandidates = [];
   for (const p of allCells) {
     const pk = pointKey(p);
     if (reserved.has(pk)) continue;
     if (walls.includes(pk)) continue;
-    if (doors.some((d) => d.x === p.x && d.y === p.y)) continue;
+    if (doors.some((dd) => dd.x === p.x && dd.y === p.y)) continue;
+    if (!reachAllOpen.has(pk)) continue;
 
     let adj = 0;
     const dirs = [
@@ -1335,12 +1626,7 @@ function tryGenerateLevel(rng, dateKey) {
       }
     }
     if (adj >= 2) {
-      const testWalls = [...walls];
-      const testDoors = doors.map((d) => ({ ...d }));
-      const reachable = bfsReachable(testWalls, testDoors, player, false);
-      if (reachable.has(pk)) {
-        exhibitCandidates.push(p);
-      }
+      exhibitCandidates.push(p);
     }
   }
 
@@ -1351,8 +1637,9 @@ function tryGenerateLevel(rng, dateKey) {
   }
 
   if (exhibits.length === 0) {
-    for (const p of mainPath.slice(1, -1)) {
-      if (!walls.includes(pointKey(p)) && !doors.some((d) => d.x === p.x && d.y === p.y)) {
+    for (let i = mainPath.length - 2; i >= 1; i--) {
+      const p = mainPath[i];
+      if (!walls.includes(pointKey(p)) && !doors.some((dd) => dd.x === p.x && dd.y === p.y)) {
         exhibits.push({ x: p.x, y: p.y, fixed: false });
         reserved.add(pointKey(p));
         break;
@@ -1377,6 +1664,9 @@ function tryGenerateLevel(rng, dateKey) {
       if (samePoint(pos, player) && g.step === 0) return null;
     }
   }
+
+  const initVision = getGuardVisionAtStep(guards, 0, walls);
+  if (initVision.has(pointKey(player))) return null;
 
   return {
     name: `每日挑战 ${dateKey}`,
@@ -1411,13 +1701,16 @@ function generateGuards(rng, walls, doors, player, exit, exhibits, mainPath, res
           if (reserved.has(ck)) continue;
           if (samePoint({ x, y }, player)) continue;
           if (samePoint({ x, y }, exit)) continue;
-          if (pathSet.has(ck) && rng() > 0.3) continue;
+          if (pathSet.has(ck) && rng() > 0.25) continue;
           candidateCells.push({ x, y });
         }
       }
 
       if (candidateCells.length === 0) break;
       const start = randomChoice(rng, candidateCells);
+
+      const startDist = Math.abs(start.x - player.x) + Math.abs(start.y - player.y);
+      if (startDist < 3) continue;
 
       const pathLength = randomInt(rng, 3, 5);
       const path = [{ ...start }];
@@ -1443,6 +1736,7 @@ function generateGuards(rng, walls, doors, player, exit, exhibits, mainPath, res
           if (doorSet.has(nkey)) continue;
           if (samePoint({ x: nx, y: ny }, player)) continue;
           if (path.some((p) => p.x === nx && p.y === ny)) continue;
+          if (reserved.has(nkey)) continue;
 
           path.push({ x: nx, y: ny });
           current = { x: nx, y: ny };
@@ -1453,12 +1747,9 @@ function generateGuards(rng, walls, doors, player, exit, exhibits, mainPath, res
       }
 
       if (path.length >= 3) {
-        const startDist = Math.abs(path[0].x - player.x) + Math.abs(path[0].y - player.y);
-        if (startDist >= 3) {
-          guards.push({ path, step: 0 });
-          for (const p of path) reserved.add(pointKey(p));
-          break;
-        }
+        guards.push({ path: [...path], step: 0 });
+        for (const p of path) reserved.add(pointKey(p));
+        break;
       }
     }
   }
