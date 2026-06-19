@@ -16,6 +16,9 @@ const editorExhibitCountEl = document.getElementById("editorExhibitCount");
 const editorExitCountEl = document.getElementById("editorExitCount");
 const editorPlayerCountEl = document.getElementById("editorPlayerCount");
 const editorGuardCountEl = document.getElementById("editorGuardCount");
+const editorPlateCountEl = document.getElementById("editorPlateCount");
+const editorScreenCountEl = document.getElementById("editorScreenCount");
+const editorLightCountEl = document.getElementById("editorLightCount");
 
 const GRID_WIDTH = 8;
 const GRID_HEIGHT = 7;
@@ -37,7 +40,12 @@ function createEmptyLevel() {
     exhibits: [],
     player: null,
     guards: [],
-    exit: null
+    exit: null,
+    mechanisms: {
+      pressurePlates: [],
+      screens: [],
+      lights: []
+    }
   };
 }
 
@@ -140,6 +148,23 @@ function renderEditorBoard() {
         label.textContent = `巡${guardInfo.guardIndex + 1}`;
       }
 
+      const mech = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+      const plate = mech.pressurePlates.find(p => samePoint(p, point));
+      if (plate) {
+        tile.classList.add("pressure-plate");
+        label.textContent = "压板";
+      }
+      const scr = mech.screens.find(s => samePoint(s, point));
+      if (scr) {
+        tile.classList.add("screen");
+        label.textContent = "屏风";
+      }
+      const light = mech.lights.find(l => samePoint(l, point));
+      if (light) {
+        tile.classList.add("light-switch");
+        label.textContent = "熄灯";
+      }
+
       if (editorState.currentGuardPath) {
         const pathIndex = editorState.currentGuardPath.findIndex(
           (p) => p.x === x && p.y === y
@@ -167,6 +192,8 @@ function handleTileClick(x, y) {
     eraseAt(point);
   } else if (tool === "guard") {
     handleGuardPathClick(point);
+  } else if (tool === "pressurePlate") {
+    handlePressurePlateClick(point);
   } else {
     placeOrRemove(tool, point);
   }
@@ -226,6 +253,24 @@ function placeOrRemove(tool, point) {
       eraseAt(point);
       level.player = { x: point.x, y: point.y };
     }
+  } else if (tool === "screen") {
+    const mech = level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+    const existing = mech.screens.find(s => samePoint(s, point));
+    if (existing) {
+      mech.screens = mech.screens.filter(s => !samePoint(s, point));
+    } else {
+      eraseAt(point);
+      mech.screens.push({ x: point.x, y: point.y });
+    }
+  } else if (tool === "light") {
+    const mech = level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+    const existing = mech.lights.find(l => samePoint(l, point));
+    if (existing) {
+      mech.lights = mech.lights.filter(l => !samePoint(l, point));
+    } else {
+      eraseAt(point);
+      mech.lights.push({ x: point.x, y: point.y, active: false });
+    }
   }
 }
 
@@ -256,6 +301,22 @@ function handleGuardPathClick(point) {
   }
 }
 
+function handlePressurePlateClick(point) {
+  const level = editorState.level;
+  const mech = level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const existing = mech.pressurePlates.find(p => samePoint(p, point));
+  if (existing) {
+    mech.pressurePlates = mech.pressurePlates.filter(p => !samePoint(p, point));
+  } else {
+    eraseAt(point);
+    const targetDoors = level.doors.map(d => ({ x: d.x, y: d.y }));
+    mech.pressurePlates.push({ x: point.x, y: point.y, targetDoors, triggered: false });
+    if (level.doors.length === 0) {
+      showWarning("当前没有门，压力板将不会有效果");
+    }
+  }
+}
+
 function eraseAt(point) {
   const level = editorState.level;
   const key = pointKey(point);
@@ -275,6 +336,13 @@ function eraseAt(point) {
   level.guards = level.guards.filter((guard) =>
     !guard.path.some((p) => samePoint(p, point))
   );
+
+  const mech = level.mechanisms;
+  if (mech) {
+    mech.pressurePlates = mech.pressurePlates.filter((p) => !samePoint(p, point));
+    mech.screens = mech.screens.filter((s) => !samePoint(s, point));
+    mech.lights = mech.lights.filter((l) => !samePoint(l, point));
+  }
 }
 
 function isEditorWall(point) {
@@ -314,6 +382,7 @@ function pointKey(point) {
 
 function updateEditorStats() {
   const level = editorState.level;
+  const mech = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
   editorWallCountEl.textContent = level.walls.length;
   editorDoorCountEl.textContent = level.doors.length;
   editorKeyCountEl.textContent = level.keys.length;
@@ -321,6 +390,9 @@ function updateEditorStats() {
   editorExitCountEl.textContent = level.exit ? 1 : 0;
   editorPlayerCountEl.textContent = level.player ? 1 : 0;
   editorGuardCountEl.textContent = level.guards.length;
+  editorPlateCountEl.textContent = mech.pressurePlates.length;
+  editorScreenCountEl.textContent = mech.screens.length;
+  editorLightCountEl.textContent = mech.lights.length;
 }
 
 function validateLevel() {

@@ -64,6 +64,43 @@ const levels = [
       { path: [{ x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 3, y: 5 }], step: 0 }
     ],
     exit: { x: 4, y: 0 }
+  },
+  {
+    name: "四",
+    walls: ["3,0", "3,1", "3,2", "3,4", "3,5", "3,6"],
+    doors: [{ x: 3, y: 3, open: false }],
+    keys: [],
+    exhibits: [{ x: 7, y: 2, fixed: false }],
+    player: { x: 0, y: 6 },
+    guards: [
+      { path: [{ x: 5, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 3 }, { x: 5, y: 3 }], step: 0 }
+    ],
+    exit: { x: 7, y: 0 },
+    mechanisms: {
+      pressurePlates: [{ x: 2, y: 3, targetDoors: [{ x: 3, y: 3 }], triggered: false }],
+      screens: [{ x: 5, y: 2 }],
+      lights: [{ x: 2, y: 5, active: false }]
+    }
+  },
+  {
+    name: "五",
+    walls: ["1,1", "1,2", "1,3", "4,1", "4,2", "5,4", "5,5", "5,6", "6,4"],
+    doors: [{ x: 4, y: 3, open: false }, { x: 6, y: 5, open: false }],
+    keys: [{ x: 0, y: 0 }],
+    exhibits: [{ x: 7, y: 1, fixed: false }, { x: 7, y: 6, fixed: false }],
+    player: { x: 0, y: 6 },
+    guards: [
+      { path: [{ x: 2, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 4 }, { x: 2, y: 4 }], step: 0 },
+      { path: [{ x: 6, y: 2 }, { x: 6, y: 3 }, { x: 7, y: 3 }, { x: 7, y: 2 }], step: 0 }
+    ],
+    exit: { x: 7, y: 0 },
+    mechanisms: {
+      pressurePlates: [
+        { x: 2, y: 5, targetDoors: [{ x: 4, y: 3 }], triggered: false }
+      ],
+      screens: [{ x: 3, y: 3 }],
+      lights: [{ x: 5, y: 3, active: false }]
+    }
   }
 ];
 
@@ -174,12 +211,14 @@ function cloneLevel(index) {
 }
 
 function snapshotState(action) {
+  const m = state.level.mechanisms;
   return {
     action: action,
     player: { ...state.player },
     ap: state.ap,
     keys: state.keys,
     done: state.done,
+    visionReduced: state.visionReduced,
     level: {
       walls: [...state.level.walls],
       doors: state.level.doors.map(d => ({ ...d })),
@@ -188,7 +227,12 @@ function snapshotState(action) {
       guards: state.level.guards.map(g => ({ path: g.path.map(p => ({ ...p })), step: g.step })),
       exit: state.level.exit ? { ...state.level.exit } : null,
       player: state.level.player ? { ...state.level.player } : null,
-      name: state.level.name
+      name: state.level.name,
+      mechanisms: m ? {
+        pressurePlates: m.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) })),
+        screens: m.screens.map(s => ({ ...s })),
+        lights: m.lights.map(l => ({ ...l }))
+      } : { pressurePlates: [], screens: [], lights: [] }
     },
     log: [...state.log]
   };
@@ -200,6 +244,10 @@ function recordHistory(action) {
 
 function freshState(index) {
   const level = cloneLevel(index);
+  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
+  level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
+  level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
   return {
     levelIndex: index,
     level,
@@ -207,6 +255,7 @@ function freshState(index) {
     ap: 4,
     keys: 0,
     done: false,
+    visionReduced: false,
     log: [`第${level.name}展厅夜巡开始，避开视线完成修复。`],
     history: []
   };
@@ -218,6 +267,10 @@ function freshStateFromLevel(levelData) {
   level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
   level.doors = level.doors.map((d) => ({ ...d, open: false }));
   level.guards = level.guards.map((g) => ({ path: [...g.path], step: 0 }));
+  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
+  level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
+  level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
   return {
     levelIndex: -1,
     level,
@@ -225,6 +278,7 @@ function freshStateFromLevel(levelData) {
     ap: 4,
     keys: 0,
     done: false,
+    visionReduced: false,
     log: [`${level.name}关卡夜巡开始，避开视线完成修复。`],
     history: []
   };
@@ -583,15 +637,32 @@ function move(dx, dy) {
   const next = { x: state.player.x + dx, y: state.player.y + dy };
   if (!inside(next) || isWall(next)) return;
 
+  const screen = screenAt(next);
+  if (screen) {
+    const pushDest = { x: next.x + dx, y: next.y + dy };
+    if (!canPushScreenTo(pushDest)) {
+      addLog("屏风无法推动。");
+      render();
+      return;
+    }
+    screen.x = pushDest.x;
+    screen.y = pushDest.y;
+    addLog("推开了一扇屏风。");
+  }
+
   if (tutorialState.active && tutorialSteps[tutorialState.currentStep].id === 2) {
     const vision = visionSet();
     if (vision.has(pointKey(next))) {
+      if (screen) {
+        screen.x = next.x;
+        screen.y = next.y;
+      }
       showTutorialError("wrongDirection");
       return;
     }
   }
 
-  let action = getDirectionName(dx, dy);
+  let action = screen ? "推屏风并" + getDirectionName(dx, dy) : getDirectionName(dx, dy);
   const door = doorAt(next);
   if (door && !door.open) {
     if (state.keys > 0) {
@@ -608,6 +679,8 @@ function move(dx, dy) {
   state.player = next;
   state.ap -= 1;
   pickKey();
+  activatePressurePlates();
+  activateLights();
   if (seenByGuard()) {
     if (tutorialState.active) {
       showTutorialError("seenByGuard", true);
@@ -692,6 +765,7 @@ function endTurn() {
   }
 
   state.ap = 4;
+  state.visionReduced = false;
   state.level.guards.forEach((guard) => {
     guard.step = (guard.step + 1) % guard.path.length;
   });
@@ -794,15 +868,18 @@ function seenByGuard() {
 
 function visionSet() {
   const set = new Set();
+  const m = getMechanisms();
+  const screenSet = new Set(m.screens.map(s => pointKey(s)));
+  const maxRange = state.visionReduced ? 1 : 2;
   state.level.guards.forEach((guard) => {
     const pos = guard.path[guard.step];
     set.add(pointKey(pos));
     const next = guard.path[(guard.step + 1) % guard.path.length];
     const dx = Math.sign(next.x - pos.x);
     const dy = Math.sign(next.y - pos.y);
-    for (let i = 1; i <= 2; i += 1) {
+    for (let i = 1; i <= maxRange; i += 1) {
       const point = { x: pos.x + dx * i, y: pos.y + dy * i };
-      if (!inside(point) || isWall(point)) break;
+      if (!inside(point) || isWall(point) || screenSet.has(pointKey(point))) break;
       set.add(pointKey(point));
     }
   });
@@ -811,15 +888,18 @@ function visionSet() {
 
 function visionSetForSnapshot(snapshot) {
   const set = new Set();
+  const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const screenSet = new Set(sm.screens.map(s => pointKey(s)));
+  const maxRange = snapshot.visionReduced ? 1 : 2;
   snapshot.level.guards.forEach((guard) => {
     const pos = guard.path[guard.step];
     set.add(pointKey(pos));
     const next = guard.path[(guard.step + 1) % guard.path.length];
     const dx = Math.sign(next.x - pos.x);
     const dy = Math.sign(next.y - pos.y);
-    for (let i = 1; i <= 2; i += 1) {
+    for (let i = 1; i <= maxRange; i += 1) {
       const point = { x: pos.x + dx * i, y: pos.y + dy * i };
-      if (!inside(point) || isWallForSnapshot(snapshot, point)) break;
+      if (!inside(point) || isWallForSnapshot(snapshot, point) || screenSet.has(pointKey(point))) break;
       set.add(pointKey(point));
     }
   });
@@ -852,6 +932,69 @@ function samePoint(a, b) {
 
 function pointKey(point) {
   return `${point.x},${point.y}`;
+}
+
+function getMechanisms() {
+  return state.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+}
+
+function screenAt(point) {
+  const m = getMechanisms();
+  return m.screens.find(s => samePoint(s, point)) || null;
+}
+
+function pressurePlateAt(point) {
+  const m = getMechanisms();
+  return m.pressurePlates.find(p => samePoint(p, point)) || null;
+}
+
+function lightAt(point) {
+  const m = getMechanisms();
+  return m.lights.find(l => samePoint(l, point)) || null;
+}
+
+function isScreen(point) {
+  return screenAt(point) !== null;
+}
+
+function canPushScreenTo(point) {
+  if (!inside(point)) return false;
+  if (isWall(point)) return false;
+  const d = doorAt(point);
+  if (d && !d.open) return false;
+  if (isScreen(point)) return false;
+  const ex = state.level.exhibits.find(e => samePoint(e, point));
+  if (ex) return false;
+  return true;
+}
+
+function activatePressurePlates() {
+  const m = getMechanisms();
+  m.pressurePlates.forEach(plate => {
+    const playerOn = samePoint(state.player, plate);
+    if (playerOn && !plate.triggered) {
+      plate.triggered = true;
+      plate.targetDoors.forEach(td => {
+        const door = state.level.doors.find(d => samePoint(d, td));
+        if (door) door.open = !door.open;
+      });
+      addLog("踩下压力板，远处的门发生了变化。");
+    } else if (!playerOn && plate.triggered) {
+      plate.triggered = false;
+    }
+  });
+}
+
+function activateLights() {
+  const m = getMechanisms();
+  m.lights.forEach(light => {
+    if (light.active) return;
+    if (samePoint(state.player, light)) {
+      light.active = true;
+      state.visionReduced = true;
+      addLog("按下了熄灯开关，巡逻员视野暂时缩短。");
+    }
+  });
 }
 
 function addLog(text) {
@@ -910,6 +1053,24 @@ function renderBoard() {
       if (exhibit) {
         tile.classList.add(exhibit.fixed ? "fixed-exhibit" : "exhibit");
         label.textContent = exhibit.fixed ? "已修" : "展柜";
+      }
+      const m = getMechanisms();
+      const plate = m.pressurePlates.find(p => samePoint(p, point));
+      if (plate) {
+        tile.classList.add("pressure-plate");
+        if (plate.triggered) tile.classList.add("triggered");
+        label.textContent = plate.triggered ? "压板✓" : "压板";
+      }
+      const scr = m.screens.find(s => samePoint(s, point));
+      if (scr) {
+        tile.classList.add("screen");
+        label.textContent = "屏风";
+      }
+      const light = m.lights.find(l => samePoint(l, point));
+      if (light) {
+        tile.classList.add("light-switch");
+        if (light.active) tile.classList.add("active");
+        label.textContent = light.active ? "熄灯✓" : "熄灯";
       }
       if (samePoint(state.level.exit, point)) {
         tile.classList.add("exit");
@@ -996,6 +1157,24 @@ function renderReplayStep() {
       if (exhibit) {
         tile.classList.add(exhibit.fixed ? "fixed-exhibit" : "exhibit");
         label.textContent = exhibit.fixed ? "已修" : "展柜";
+      }
+      const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+      const plate = sm.pressurePlates.find(p => samePoint(p, point));
+      if (plate) {
+        tile.classList.add("pressure-plate");
+        if (plate.triggered) tile.classList.add("triggered");
+        label.textContent = plate.triggered ? "压板✓" : "压板";
+      }
+      const scr = sm.screens.find(s => samePoint(s, point));
+      if (scr) {
+        tile.classList.add("screen");
+        label.textContent = "屏风";
+      }
+      const light = sm.lights.find(l => samePoint(l, point));
+      if (light) {
+        tile.classList.add("light-switch");
+        if (light.active) tile.classList.add("active");
+        label.textContent = light.active ? "熄灯✓" : "熄灯";
       }
       if (snapshot.level.exit && samePoint(snapshot.level.exit, point)) {
         tile.classList.add("exit");
