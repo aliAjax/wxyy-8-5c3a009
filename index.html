@@ -51,6 +51,32 @@
 
     <section id="result" class="result hidden"></section>
 
+    <section id="replay" class="replay hidden">
+      <div class="replay-header">
+        <h2>通关回放</h2>
+        <button id="replayCloseBtn" type="button" class="editor-close">关闭回放</button>
+      </div>
+      <div class="replay-body">
+        <section class="board-shell replay-board-shell">
+          <div id="replayAction" class="replay-action">第 1 步 · 开局</div>
+          <div id="replayBoard" class="board replay-board"></div>
+          <div class="replay-controls">
+            <button id="replayPrevBtn" type="button">⏮ 上一帧</button>
+            <button id="replayPlayBtn" type="button" class="replay-play-btn">▶ 播放</button>
+            <button id="replayNextBtn" type="button">下一帧 ⏭</button>
+          </div>
+          <div class="replay-progress">
+            <span>步骤：<strong id="replayStep">1</strong> / <strong id="replayTotal">1</strong></span>
+            <input type="range" id="replayProgress" min="0" max="0" value="0" class="replay-slider">
+          </div>
+        </section>
+        <aside class="panel replay-log-panel">
+          <h3>夜巡记录</h3>
+          <div id="replayLog" class="log replay-log"></div>
+        </aside>
+      </div>
+    </section>
+
     <section id="editor" class="editor hidden">
       <div class="editor-header">
         <h2>关卡编辑器</h2>

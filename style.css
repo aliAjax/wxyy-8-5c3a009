@@ -459,3 +459,151 @@ h2 {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+.replay-trigger {
+  margin-top: 16px;
+  background: #77b6c8;
+  color: #201b20;
+}
+
+.replay {
+  margin-top: 20px;
+  padding: 20px;
+  border: 1px solid #514956;
+  border-radius: 8px;
+  background: #2c2730;
+}
+
+.replay-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.replay-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #d7bd77;
+}
+
+.replay-body {
+  display: grid;
+  grid-template-columns: minmax(420px, 1fr) 260px;
+  gap: 16px;
+  align-items: start;
+}
+
+.replay-board-shell {
+  gap: 12px;
+}
+
+.replay-action {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #201b20;
+  color: #d7bd77;
+  font-weight: bold;
+  font-size: 15px;
+  text-align: center;
+  border: 1px solid #514956;
+}
+
+.replay-board {
+  width: min(100%, 672px);
+}
+
+.replay-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.replay-play-btn {
+  background: #77b6c8;
+  font-size: 16px;
+}
+
+.replay-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #201b20;
+  border: 1px solid #514956;
+}
+
+.replay-progress span {
+  color: #cec4ba;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.replay-progress strong {
+  color: #d7bd77;
+  font-weight: bold;
+}
+
+.replay-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 8px;
+  border-radius: 4px;
+  background: #3c3642;
+  outline: none;
+  cursor: pointer;
+}
+
+.replay-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #d7bd77;
+  cursor: pointer;
+  border: 2px solid #201b20;
+  transition: transform 0.15s;
+}
+
+.replay-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.replay-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #d7bd77;
+  cursor: pointer;
+  border: 2px solid #201b20;
+}
+
+.replay-log-panel {
+  padding: 16px;
+}
+
+.replay-log-panel h3 {
+  margin-top: 0;
+  color: #d7bd77;
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+
+.replay-log {
+  height: 420px;
+}
+
+@media (max-width: 980px) {
+  .replay-body {
+    grid-template-columns: 1fr;
+  }
+
+  .replay-log {
+    height: 260px;
+  }
+}
