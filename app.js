@@ -2167,6 +2167,31 @@ function searchHintPath() {
   const numLights = lights.length;
   const cycleLen = getGuardCycleLength(guards);
 
+  const guardInitSteps = guards.map(g => g.step);
+
+  function getVisionAtOffset(offset, screenList, visionReduced) {
+    const vision = new Set();
+    const wallSet = new Set(walls);
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const maxRange = visionReduced ? 1 : 2;
+    guards.forEach((guard, gi) => {
+      const gs = (guardInitSteps[gi] + offset) % guard.path.length;
+      const pos = guard.path[gs];
+      vision.add(pointKey(pos));
+      const nextPos = guard.path[(gs + 1) % guard.path.length];
+      const dx = Math.sign(nextPos.x - pos.x);
+      const dy = Math.sign(nextPos.y - pos.y);
+      for (let i = 1; i <= maxRange; i++) {
+        const p = { x: pos.x + dx * i, y: pos.y + dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
+  }
+
   const currentDoorsOpen = doors.map(d => d.open);
   const currentKeysTaken = keyItems.map(k => k.taken);
   const currentFixed = exhibits.map(e => e.fixed);
@@ -2265,7 +2290,7 @@ function searchHintPath() {
         actionLabel = "开门+" + actionLabel;
       }
 
-      const vision = getGuardVisionAtStepWithScreens(guards, cur.step, walls, ns.screens, ns.visionReduced);
+      const vision = getVisionAtOffset(cur.step, ns.screens, ns.visionReduced);
       if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
@@ -2308,7 +2333,7 @@ function searchHintPath() {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getGuardVisionAtStepWithScreens(guards, nextStep, walls, ns.screens, ns.pendingVisionReduction);
+        const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction);
         const curPk = pointKey(ns.pos);
         if (!nextVision.has(curPk)) {
           ns.step = nextStep;
@@ -2336,7 +2361,7 @@ function searchHintPath() {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getGuardVisionAtStepWithScreens(guards, nextStep, walls, ns.screens, ns.pendingVisionReduction);
+          const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction);
           const curPk = pointKey(ns.pos);
           if (!nextVision.has(curPk)) {
             ns.step = nextStep;
@@ -2356,7 +2381,7 @@ function searchHintPath() {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getGuardVisionAtStepWithScreens(guards, nextStep, walls, cur.screens, cur.pendingVisionReduction);
+      const nextVision = getVisionAtOffset(nextStep, cur.screens, cur.pendingVisionReduction);
       const curPk = pointKey(cur.pos);
       if (!nextVision.has(curPk)) {
         const ns = cloneHintState(cur);
