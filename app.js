@@ -219,6 +219,7 @@ function snapshotState(action) {
     keys: state.keys,
     done: state.done,
     visionReduced: state.visionReduced,
+    pendingVisionReduction: state.pendingVisionReduction,
     level: {
       walls: [...state.level.walls],
       doors: state.level.doors.map(d => ({ ...d })),
@@ -256,6 +257,7 @@ function freshState(index) {
     keys: 0,
     done: false,
     visionReduced: false,
+    pendingVisionReduction: false,
     log: [`第${level.name}展厅夜巡开始，避开视线完成修复。`],
     history: []
   };
@@ -279,6 +281,7 @@ function freshStateFromLevel(levelData) {
     keys: 0,
     done: false,
     visionReduced: false,
+    pendingVisionReduction: false,
     log: [`${level.name}关卡夜巡开始，避开视线完成修复。`],
     history: []
   };
@@ -313,6 +316,8 @@ function startTutorial() {
     ap: 4,
     keys: 0,
     done: false,
+    visionReduced: false,
+    pendingVisionReduction: false,
     log: ["欢迎来到博物馆！让我们学习如何成为一名优秀的夜间修复师。"],
     history: []
   };
@@ -463,6 +468,8 @@ function restartTutorialStep(reason = "manual") {
     ap: 4,
     keys: keys,
     done: false,
+    visionReduced: false,
+    pendingVisionReduction: false,
     log: [
       ...state.log,
       reason === "guard" ? "⚠️ 被巡逻员发现了！回到安全位置重试。" : "重试当前教学步骤。"
@@ -765,7 +772,8 @@ function endTurn() {
   }
 
   state.ap = 4;
-  state.visionReduced = false;
+  state.visionReduced = state.pendingVisionReduction;
+  state.pendingVisionReduction = false;
   state.level.guards.forEach((guard) => {
     guard.step = (guard.step + 1) % guard.path.length;
   });
@@ -991,8 +999,8 @@ function activateLights() {
     if (light.active) return;
     if (samePoint(state.player, light)) {
       light.active = true;
-      state.visionReduced = true;
-      addLog("按下了熄灯开关，巡逻员视野暂时缩短。");
+      state.pendingVisionReduction = true;
+      addLog("按下了熄灯开关，巡逻员下一回合视野会缩短。");
     }
   });
 }
