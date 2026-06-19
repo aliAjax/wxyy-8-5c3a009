@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>博物馆夜间修复师</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="header">
+      <div>
+        <p class="eyebrow">Museum Night Restorer</p>
+        <h1>博物馆夜间修复师</h1>
+      </div>
+      <div id="levelButtons" class="level-buttons"></div>
+    </header>
+
+    <section class="game">
+      <aside class="panel">
+        <h2>任务</h2>
+        <div class="stats">
+          <span>关卡<strong id="levelName">一</strong></span>
+          <span>行动点<strong id="ap">4</strong></span>
+          <span>钥匙<strong id="keys">0</strong></span>
+          <span>修复<strong id="fixed">0/1</strong></span>
+        </div>
+        <button id="waitBtn" type="button">等待回合</button>
+        <button id="repairBtn" type="button">修复展柜</button>
+        <button id="restartBtn" type="button">重试本关</button>
+      </aside>
+
+      <section class="board-shell">
+        <div id="board" class="board"></div>
+        <div class="touch-controls">
+          <button id="upBtn" type="button">上</button>
+          <button id="leftBtn" type="button">左</button>
+          <button id="downBtn" type="button">下</button>
+          <button id="rightBtn" type="button">右</button>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <h2>夜巡记录</h2>
+        <div id="log" class="log"></div>
+      </aside>
+    </section>
+
+    <section id="result" class="result hidden"></section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
