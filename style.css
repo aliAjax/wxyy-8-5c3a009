@@ -251,6 +251,15 @@ h2 {
   gap: 8px;
 }
 
+.tutorial-toggle {
+  background: #d7bd77;
+}
+
+.tutorial-toggle.active {
+  background: #f4d03f;
+  color: #201b20;
+}
+
 .editor-toggle {
   background: #77b6c8;
 }
@@ -605,5 +614,95 @@ h2 {
 
   .replay-log {
     height: 260px;
+  }
+}
+
+.tutorial-hint {
+  padding: 16px;
+  border: 2px solid #d7bd77;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3c3642 0%, #2c2730 100%);
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.tutorial-hint::before {
+  content: "💡";
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  font-size: 24px;
+  opacity: 0.3;
+}
+
+.tutorial-step {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: #d7bd77;
+  color: #201b20;
+  font-size: 12px;
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.tutorial-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: #d7bd77;
+  margin-bottom: 8px;
+}
+
+.tutorial-text {
+  font-size: 14px;
+  color: #f4efe6;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.tutorial-error {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: rgba(209, 76, 63, 0.2);
+  border: 1px solid #d14c3f;
+  color: #ff8a80;
+  font-size: 13px;
+  margin-top: 10px;
+  animation: shake 0.3s ease-in-out;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.tutorial-highlight {
+  animation: pulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 0 3px #d7bd77, inset 0 0 20px rgba(215, 189, 119, 0.3);
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 3px #d7bd77, inset 0 0 20px rgba(215, 189, 119, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 0 5px #f4d03f, inset 0 0 30px rgba(215, 189, 119, 0.5);
+  }
+}
+
+.tutorial-highlight::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border: 2px dashed #d7bd77;
+  border-radius: 4px;
+  animation: dash 2s linear infinite;
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -20;
   }
 }

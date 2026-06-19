@@ -14,6 +14,7 @@
         <h1>博物馆夜间修复师</h1>
       </div>
       <div class="header-buttons">
+        <button id="tutorialBtn" type="button" class="tutorial-toggle">新手教学</button>
         <button id="editorToggleBtn" type="button" class="editor-toggle">关卡编辑器</button>
         <div id="levelButtons" class="level-buttons"></div>
       </div>
@@ -34,6 +35,12 @@
       </aside>
 
       <section class="board-shell">
+        <div id="tutorialHint" class="tutorial-hint hidden">
+          <div class="tutorial-step" id="tutorialStep">步骤 1/5</div>
+          <div class="tutorial-title" id="tutorialTitle">学习移动</div>
+          <div class="tutorial-text" id="tutorialText">使用方向键或 WASD 移动到高亮位置。</div>
+          <div class="tutorial-error" id="tutorialError"></div>
+        </div>
         <div id="board" class="board"></div>
         <div class="touch-controls">
           <button id="upBtn" type="button">上</button>
