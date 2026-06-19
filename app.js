@@ -49,6 +49,7 @@ const levels = [
 ];
 
 let state;
+let customLevelSource = null;
 
 function cloneLevel(index) {
   return JSON.parse(JSON.stringify(levels[index]));
@@ -85,6 +86,7 @@ function freshStateFromLevel(levelData) {
 }
 
 function loadCustomLevel(levelData) {
+  customLevelSource = JSON.parse(JSON.stringify(levelData));
   state = freshStateFromLevel(levelData);
   resultEl.classList.add("hidden");
   [...levelButtonsEl.children].forEach((button) => {
@@ -107,7 +109,7 @@ function bindControls() {
   document.getElementById("rightBtn").addEventListener("click", () => move(1, 0));
   waitBtn.addEventListener("click", endTurn);
   repairBtn.addEventListener("click", repair);
-  restartBtn.addEventListener("click", () => loadLevel(state.levelIndex));
+  restartBtn.addEventListener("click", restartLevel);
   window.addEventListener("keydown", (event) => {
     const keys = {
       ArrowUp: [0, -1],
@@ -144,9 +146,20 @@ function renderLevelButtons() {
 }
 
 function loadLevel(index) {
+  customLevelSource = null;
   state = freshState(index);
   resultEl.classList.add("hidden");
   render();
+}
+
+function restartLevel() {
+  if (state.levelIndex === -1 && customLevelSource) {
+    state = freshStateFromLevel(customLevelSource);
+    resultEl.classList.add("hidden");
+    render();
+    return;
+  }
+  loadLevel(state.levelIndex);
 }
 
 function move(dx, dy) {
