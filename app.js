@@ -125,7 +125,8 @@ const tutorialSteps = [
     text: "移动到高亮的展柜旁边，然后点击\"修复展柜\"按钮或按空格键修复它。",
     errorHints: {
       wrongDirection: "请移动到展柜旁边",
-      wrongAction: "先移动到展柜旁边才能修复"
+      wrongAction: "先移动到展柜旁边才能修复",
+      seenByGuard: "被发现了！注意巡逻员的动向。"
     },
     target: { x: 6, y: 2 },
     highlight: [{ x: 6, y: 2 }],
@@ -138,7 +139,8 @@ const tutorialSteps = [
     text: "所有展柜修复完成后，移动到高亮的出口位置离开博物馆。",
     errorHints: {
       wrongDirection: "请移动到出口位置",
-      wrongAction: "直接移动到出口即可"
+      wrongAction: "直接移动到出口即可",
+      seenByGuard: "被发现了！小心避开巡逻员。"
     },
     target: { x: 7, y: 0 },
     highlight: [{ x: 7, y: 0 }],
@@ -151,7 +153,8 @@ let tutorialState = {
   active: false,
   currentStep: 0,
   hasWaited: false,
-  wrongAttempts: 0
+  wrongAttempts: 0,
+  errorTimeout: null
 };
 
 let state;
@@ -239,6 +242,10 @@ function loadCustomLevel(levelData) {
 }
 
 function startTutorial() {
+  if (tutorialState.errorTimeout) {
+    clearTimeout(tutorialState.errorTimeout);
+    tutorialState.errorTimeout = null;
+  }
   const level = JSON.parse(JSON.stringify(tutorialLevel));
   level.keys = level.keys.map((k) => ({ ...k, taken: false }));
   level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
@@ -273,6 +280,11 @@ function exitTutorial() {
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
+  if (tutorialState.errorTimeout) {
+    clearTimeout(tutorialState.errorTimeout);
+    tutorialState.errorTimeout = null;
+  }
+  tutorialErrorEl.textContent = "";
   loadLevel(0);
 }
 
@@ -284,14 +296,20 @@ function renderTutorial() {
   tutorialErrorEl.textContent = "";
 }
 
-function showTutorialError(errorType) {
+function showTutorialError(errorType, persist = false) {
   const step = tutorialSteps[tutorialState.currentStep];
   const hint = step.errorHints[errorType] || "请按照提示操作";
   tutorialErrorEl.textContent = hint;
   tutorialState.wrongAttempts += 1;
-  setTimeout(() => {
-    tutorialErrorEl.textContent = "";
-  }, 2000);
+  if (tutorialState.errorTimeout) {
+    clearTimeout(tutorialState.errorTimeout);
+  }
+  if (!persist) {
+    tutorialState.errorTimeout = setTimeout(() => {
+      tutorialErrorEl.textContent = "";
+      tutorialState.errorTimeout = null;
+    }, 2000);
+  }
 }
 
 function checkTutorialStep() {
@@ -308,6 +326,11 @@ function checkTutorialStep() {
 
 function advanceTutorialStep() {
   tutorialState.wrongAttempts = 0;
+  if (tutorialState.errorTimeout) {
+    clearTimeout(tutorialState.errorTimeout);
+    tutorialState.errorTimeout = null;
+  }
+  tutorialErrorEl.textContent = "";
   if (tutorialState.currentStep < tutorialSteps.length - 1) {
     tutorialState.currentStep += 1;
     tutorialState.hasWaited = false;
@@ -341,6 +364,73 @@ function isTutorialActionAllowed(action) {
   if (!tutorialState.active) return true;
   const step = tutorialSteps[tutorialState.currentStep];
   return step.allowedActions.includes(action);
+}
+
+function restartTutorialStep() {
+  const currentStep = tutorialState.currentStep;
+  const hasWaited = tutorialState.hasWaited;
+
+  const level = JSON.parse(JSON.stringify(tutorialLevel));
+  level.keys = level.keys.map((k) => ({ ...k, taken: false }));
+  level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
+  level.doors = level.doors.map((d) => ({ ...d, open: false }));
+  level.guards = level.guards.map((g) => ({ path: [...g.path], step: 0 }));
+
+  let playerStart = { ...level.player };
+  let keys = 0;
+
+  if (currentStep >= 1) {
+    playerStart = { x: 3, y: 6 };
+  }
+  if (currentStep >= 2) {
+    playerStart = { x: 2, y: 3 };
+    level.keys[0].taken = true;
+    keys = 1;
+  }
+  if (currentStep >= 3) {
+    playerStart = { x: 5, y: 3 };
+    level.keys[0].taken = true;
+    keys = 0;
+    level.doors[0].open = true;
+  }
+  if (currentStep >= 4) {
+    playerStart = { x: 6, y: 3 };
+    level.keys[0].taken = true;
+    keys = 0;
+    level.doors[0].open = true;
+    level.exhibits[0].fixed = true;
+  }
+
+  state = {
+    levelIndex: -2,
+    level,
+    player: playerStart,
+    ap: 4,
+    keys: keys,
+    done: false,
+    log: [...state.log, "⚠️ 被巡逻员发现了！回到安全位置重试。"],
+    history: []
+  };
+
+  tutorialState.active = true;
+  tutorialState.currentStep = currentStep;
+  tutorialState.hasWaited = hasWaited;
+
+  const step = tutorialSteps[currentStep];
+  tutorialStepEl.textContent = `步骤 ${step.id + 1}/${tutorialSteps.length}`;
+  tutorialTitleEl.textContent = step.title;
+  tutorialTextEl.textContent = step.text;
+
+  if (tutorialState.errorTimeout) {
+    clearTimeout(tutorialState.errorTimeout);
+  }
+  tutorialState.errorTimeout = setTimeout(() => {
+    tutorialErrorEl.textContent = "";
+    tutorialState.errorTimeout = null;
+  }, 3000);
+
+  recordHistory("重试当前步骤");
+  render();
 }
 
 function init() {
@@ -422,11 +512,7 @@ function loadLevel(index) {
 
 function restartLevel() {
   if (tutorialState.active) {
-    const currentStep = tutorialState.currentStep;
-    startTutorial();
-    tutorialState.currentStep = currentStep;
-    renderTutorial();
-    render();
+    restartTutorialStep();
     return;
   }
   if (state.levelIndex === -1 && customLevelSource) {
@@ -500,8 +586,8 @@ function move(dx, dy) {
   pickKey();
   if (seenByGuard()) {
     if (tutorialState.active) {
-      showTutorialError("seenByGuard");
-      restartLevel();
+      showTutorialError("seenByGuard", true);
+      restartTutorialStep();
       return;
     }
     recordHistory(action);
@@ -588,8 +674,8 @@ function endTurn() {
   addLog("巡逻员换了一段路线。");
   if (seenByGuard()) {
     if (tutorialState.active) {
-      showTutorialError("seenByGuard");
-      restartLevel();
+      showTutorialError("seenByGuard", true);
+      restartTutorialStep();
       return;
     }
     recordHistory("等待回合");
