@@ -12,6 +12,13 @@ const hintBtn = document.getElementById("hintBtn");
 const restartBtn = document.getElementById("restartBtn");
 const tutorialBtn = document.getElementById("tutorialBtn");
 const dailyBtn = document.getElementById("dailyBtn");
+const achievementBtn = document.getElementById("achievementBtn");
+const achievementEl = document.getElementById("achievement");
+const achievementCloseBtn = document.getElementById("achievementCloseBtn");
+const achievementResetBtn = document.getElementById("achievementResetBtn");
+const achievementLevelStatsEl = document.getElementById("achievementLevelStats");
+const achievementOverallEl = document.getElementById("achievementOverall");
+const achievementListEl = document.getElementById("achievementList");
 const tutorialHintEl = document.getElementById("tutorialHint");
 const tutorialStepEl = document.getElementById("tutorialStep");
 const tutorialTitleEl = document.getElementById("tutorialTitle");
@@ -514,6 +521,7 @@ function init() {
   state = freshState(0);
   bindControls();
   bindReplayControls();
+  bindAchievementControls();
   tutorialBtn.addEventListener("click", () => {
     if (tutorialState.active) {
       exitTutorial();
@@ -832,6 +840,8 @@ function allFixed() {
 function win() {
   state.done = true;
 
+  updateStatsOnWin(state.levelIndex);
+
   if (state.levelIndex === -3) {
     const dateKey = getDateKey();
     const steps = calculateSteps();
@@ -869,6 +879,9 @@ function win() {
 
 function fail(reason) {
   state.done = true;
+
+  updateStatsOnFail(state.levelIndex, reason);
+
   resultEl.innerHTML = `<h2>行动失败</h2><p>${reason}</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
   resultEl.classList.remove("hidden");
   addLog(reason);
@@ -2398,6 +2411,321 @@ function searchHintPath() {
   }
 
   return null;
+}
+
+// ============== 成就与统计系统 ==============
+
+const ACHIEVEMENT_KEY = "museum_achievement_stats";
+
+const ACHIEVEMENT_DEFS = [
+  { id: "first_win", name: "初出茅庐", desc: "首次通关任意关卡", icon: "🎯" },
+  { id: "all_levels", name: "完美修复师", desc: "通关所有正式关卡", icon: "🏆" },
+  { id: "no_wait", name: "迅雷不及掩耳", desc: "在任意关卡无等待通关", icon: "⚡" },
+  { id: "no_wait_all", name: "风驰电掣", desc: "在所有正式关卡无等待通关", icon: "🌪️" },
+  { id: "min_keys", name: "节俭达人", desc: "累计使用钥匙不超过 5 次通关 3 个关卡", icon: "🔑" },
+  { id: "survivor", name: "越挫越勇", desc: "累计失败 10 次后仍成功通关", icon: "💪" },
+  { id: "master", name: "博物馆大师", desc: "每个正式关卡都达成最少回合通关", icon: "👑" }
+];
+
+const FAILURE_REASONS = {
+  guard_sight: "被巡逻员发现",
+  guard_turn: "巡逻员换班撞见",
+  other: "其他原因"
+};
+
+let achievementState = loadAchievements();
+
+function defaultAchievementData() {
+  return {
+    levels: {},
+    overall: {
+      totalWins: 0,
+      totalFailures: 0,
+      totalKeysUsed: 0,
+      totalActions: 0,
+      totalTurns: 0,
+      failureReasons: { guard_sight: 0, guard_turn: 0, other: 0 }
+    },
+    achievements: {}
+  };
+}
+
+function loadAchievements() {
+  try {
+    const raw = localStorage.getItem(ACHIEVEMENT_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      const def = defaultAchievementData();
+      return {
+        levels: data.levels || def.levels,
+        overall: { ...def.overall, ...(data.overall || {}), failureReasons: { ...def.overall.failureReasons, ...((data.overall || {}).failureReasons || {}) } },
+        achievements: data.achievements || def.achievements
+      };
+    }
+  } catch (e) {}
+  return defaultAchievementData();
+}
+
+function saveAchievements() {
+  try {
+    localStorage.setItem(ACHIEVEMENT_KEY, JSON.stringify(achievementState));
+  } catch (e) {}
+}
+
+function resetAchievements() {
+  achievementState = defaultAchievementData();
+  saveAchievements();
+}
+
+function calculateGameStats() {
+  let turns = 0;
+  let actions = 0;
+  let keysUsed = 0;
+  let waited = false;
+
+  for (const snap of state.history) {
+    const a = snap.action || "";
+    if (a.includes("等待回合") || a.includes("等待")) {
+      turns += 1;
+      waited = true;
+    }
+    if (a.includes("移动") || a.includes("修复展柜") || a.includes("开门") || a.includes("推屏风")) {
+      actions += 1;
+    }
+    if (a.includes("开门") || a.includes("用钥匙")) {
+      keysUsed += 1;
+    }
+  }
+
+  return {
+    turns: Math.max(1, turns),
+    actions: Math.max(1, actions),
+    keysUsed,
+    noWait: !waited
+  };
+}
+
+function classifyFailureReason(reason) {
+  if (reason.includes("手电反光") || reason.includes("发现了")) return "guard_sight";
+  if (reason.includes("换班") || reason.includes("撞见")) return "guard_turn";
+  return "other";
+}
+
+function updateStatsOnWin(levelIndex) {
+  if (levelIndex < 0 || levelIndex >= levels.length) return;
+
+  const stats = calculateGameStats();
+  const key = String(levelIndex);
+
+  if (!achievementState.levels[key]) {
+    achievementState.levels[key] = {
+      bestTurns: null,
+      bestActions: null,
+      totalKeysUsed: 0,
+      wins: 0,
+      noWait: false
+    };
+  }
+
+  const ls = achievementState.levels[key];
+  ls.wins += 1;
+  ls.totalKeysUsed += stats.keysUsed;
+
+  if (ls.bestTurns === null || stats.turns < ls.bestTurns) {
+    ls.bestTurns = stats.turns;
+  }
+  if (ls.bestActions === null || stats.actions < ls.bestActions) {
+    ls.bestActions = stats.actions;
+  }
+  if (stats.noWait) {
+    ls.noWait = true;
+  }
+
+  achievementState.overall.totalWins += 1;
+  achievementState.overall.totalKeysUsed += stats.keysUsed;
+  achievementState.overall.totalActions += stats.actions;
+  achievementState.overall.totalTurns += stats.turns;
+
+  checkAchievements();
+  saveAchievements();
+}
+
+function updateStatsOnFail(levelIndex, reason) {
+  achievementState.overall.totalFailures += 1;
+  const reasonKey = classifyFailureReason(reason);
+  achievementState.overall.failureReasons[reasonKey] = (achievementState.overall.failureReasons[reasonKey] || 0) + 1;
+
+  if (levelIndex >= 0 && levelIndex < levels.length) {
+    const key = String(levelIndex);
+    if (!achievementState.levels[key]) {
+      achievementState.levels[key] = {
+        bestTurns: null,
+        bestActions: null,
+        totalKeysUsed: 0,
+        wins: 0,
+        noWait: false
+      };
+    }
+  }
+
+  saveAchievements();
+}
+
+function checkAchievements() {
+  const unlock = (id) => {
+    if (!achievementState.achievements[id]) {
+      achievementState.achievements[id] = { unlocked: true, unlockedAt: Date.now() };
+    }
+  };
+
+  const totalWins = achievementState.overall.totalWins;
+  if (totalWins >= 1) unlock("first_win");
+
+  const allLevelsPlayed = levels.every((_, i) => achievementState.levels[String(i)] && achievementState.levels[String(i)].wins > 0);
+  if (allLevelsPlayed) unlock("all_levels");
+
+  const anyNoWait = Object.values(achievementState.levels).some(l => l.noWait);
+  if (anyNoWait) unlock("no_wait");
+
+  const allNoWait = levels.length > 0 && levels.every((_, i) => achievementState.levels[String(i)] && achievementState.levels[String(i)].noWait);
+  if (allNoWait) unlock("no_wait_all");
+
+  const totalFailures = achievementState.overall.totalFailures;
+  if (totalFailures >= 10 && totalWins >= 1) unlock("survivor");
+
+  const lowKeyLevels = Object.values(achievementState.levels).filter(l => l.wins > 0).length;
+  const totalKeys = achievementState.overall.totalKeysUsed;
+  if (lowKeyLevels >= 3 && totalKeys <= 5) unlock("min_keys");
+
+  const allBestTurns = levels.length > 0 && levels.every((_, i) => {
+    const ls = achievementState.levels[String(i)];
+    return ls && ls.bestTurns !== null && ls.wins >= 1;
+  });
+  if (allBestTurns) unlock("master");
+}
+
+function openAchievement() {
+  achievementEl.classList.remove("hidden");
+  achievementBtn.classList.add("active");
+  renderAchievements();
+}
+
+function closeAchievement() {
+  achievementEl.classList.add("hidden");
+  achievementBtn.classList.remove("active");
+}
+
+function renderAchievements() {
+  renderLevelStats();
+  renderOverallStats();
+  renderAchievementList();
+}
+
+function renderLevelStats() {
+  achievementLevelStatsEl.innerHTML = "";
+  levels.forEach((level, index) => {
+    const key = String(index);
+    const ls = achievementState.levels[key];
+    const card = document.createElement("div");
+    card.className = "level-stat-card";
+
+    if (!ls || ls.wins === 0) {
+      card.innerHTML = `
+        <h4>关卡${level.name}</h4>
+        <p class="not-played">尚未通关</p>
+      `;
+    } else {
+      card.innerHTML = `
+        <h4>关卡${level.name}</h4>
+        <p>通关次数：<strong>${ls.wins}</strong></p>
+        <p>最少回合：<strong>${ls.bestTurns}</strong></p>
+        <p>最少行动：<strong>${ls.bestActions}</strong></p>
+        <p>累计使用钥匙：<strong>${ls.totalKeysUsed}</strong></p>
+        <p>${ls.noWait ? '<span class="no-wait">✓ 无等待通关记录</span>' : '无等待通关：未达成'}</p>
+      `;
+    }
+    achievementLevelStatsEl.appendChild(card);
+  });
+}
+
+function renderOverallStats() {
+  const o = achievementState.overall;
+  const playedLevels = Object.values(achievementState.levels).filter(l => l.wins > 0).length;
+  const winRate = o.totalWins + o.totalFailures > 0
+    ? Math.round((o.totalWins / (o.totalWins + o.totalFailures)) * 100)
+    : 0;
+
+  achievementOverallEl.innerHTML = `
+    <div class="overall-stat-card">
+      <span class="stat-label">已通关关卡</span>
+      <span class="stat-value">${playedLevels}/${levels.length}</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">总通关次数</span>
+      <span class="stat-value">${o.totalWins}</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">总失败次数</span>
+      <span class="stat-value">${o.totalFailures}</span>
+      <span class="stat-sub">胜率 ${winRate}%</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">累计行动数</span>
+      <span class="stat-value">${o.totalActions}</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">累计回合数</span>
+      <span class="stat-value">${o.totalTurns}</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">累计使用钥匙</span>
+      <span class="stat-value">${o.totalKeysUsed}</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">被发现失败</span>
+      <span class="stat-value">${o.failureReasons.guard_sight || 0}</span>
+      <span class="stat-sub">${FAILURE_REASONS.guard_sight}</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">换班撞见</span>
+      <span class="stat-value">${o.failureReasons.guard_turn || 0}</span>
+      <span class="stat-sub">${FAILURE_REASONS.guard_turn}</span>
+    </div>
+  `;
+}
+
+function renderAchievementList() {
+  achievementListEl.innerHTML = "";
+  ACHIEVEMENT_DEFS.forEach(def => {
+    const unlocked = achievementState.achievements[def.id] && achievementState.achievements[def.id].unlocked;
+    const item = document.createElement("div");
+    item.className = `achievement-item ${unlocked ? "unlocked" : "locked"}`;
+    item.innerHTML = `
+      <div class="achievement-icon">${unlocked ? def.icon : "🔒"}</div>
+      <div class="achievement-info">
+        <div class="achievement-name">${def.name}</div>
+        <div class="achievement-desc">${def.desc}</div>
+      </div>
+    `;
+    achievementListEl.appendChild(item);
+  });
+}
+
+function bindAchievementControls() {
+  achievementBtn.addEventListener("click", () => {
+    if (achievementEl.classList.contains("hidden")) {
+      openAchievement();
+    } else {
+      closeAchievement();
+    }
+  });
+  achievementCloseBtn.addEventListener("click", closeAchievement);
+  achievementResetBtn.addEventListener("click", () => {
+    if (confirm("确定要重置所有成就和统计记录吗？此操作不可撤销。")) {
+      resetAchievements();
+      renderAchievements();
+    }
+  });
 }
 
 init();

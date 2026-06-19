@@ -16,6 +16,7 @@
       <div class="header-buttons">
         <button id="tutorialBtn" type="button" class="tutorial-toggle">新手教学</button>
         <button id="dailyBtn" type="button" class="daily-toggle">每日挑战</button>
+        <button id="achievementBtn" type="button" class="achievement-toggle">成就统计</button>
         <button id="editorToggleBtn" type="button" class="editor-toggle">关卡编辑器</button>
         <div id="levelButtons" class="level-buttons"></div>
       </div>
@@ -85,6 +86,30 @@
           <h3>夜巡记录</h3>
           <div id="replayLog" class="log replay-log"></div>
         </aside>
+      </div>
+    </section>
+
+    <section id="achievement" class="achievement hidden">
+      <div class="achievement-header">
+        <h2>成就与统计</h2>
+        <div class="achievement-actions">
+          <button id="achievementResetBtn" type="button">重置所有记录</button>
+          <button id="achievementCloseBtn" type="button" class="editor-close">关闭</button>
+        </div>
+      </div>
+      <div class="achievement-body">
+        <div class="achievement-section">
+          <h3>关卡统计</h3>
+          <div id="achievementLevelStats" class="level-stats"></div>
+        </div>
+        <div class="achievement-section">
+          <h3>总体统计</h3>
+          <div id="achievementOverall" class="overall-stats"></div>
+        </div>
+        <div class="achievement-section">
+          <h3>成就</h3>
+          <div id="achievementList" class="achievement-list"></div>
+        </div>
       </div>
     </section>
 
