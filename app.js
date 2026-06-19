@@ -515,6 +515,8 @@ function loadCustomLevel(levelData) {
   customLevelSource = JSON.parse(JSON.stringify(levelData));
   state = freshStateFromLevel(levelData);
   resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
+  resetGameplayMetrics();
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   [...levelButtonsEl.children].forEach((button) => {
@@ -1155,6 +1157,7 @@ function loadLevel(index, preserveMetrics) {
   customLevelSource = null;
   state = freshState(index);
   resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
@@ -1175,6 +1178,7 @@ function restartLevel() {
     state = freshStateFromLevel(customLevelSource);
     gameplayMetrics.currentActions = 0;
     resultEl.classList.add("hidden");
+    resultEl.classList.remove("daily-result-style");
     recordHistory("开局");
     render();
     return;
@@ -1184,6 +1188,7 @@ function restartLevel() {
     state.levelIndex = -3;
     gameplayMetrics.currentActions = 0;
     resultEl.classList.add("hidden");
+    resultEl.classList.remove("daily-result-style");
     recordHistory("开局");
     render();
     renderDailyInfo();
@@ -1439,25 +1444,74 @@ function win() {
   if (state.levelIndex === -3) {
     const dateKey = getDateKey();
     const steps = calculateSteps();
+    const hintsUsed = gameplayMetrics.hintsUsedTotal;
     const existing = getDailyRecord(dateKey);
+    const isNewRecord = !existing || !existing.bestSteps || steps < existing.bestSteps;
+    const bestSteps = isNewRecord ? steps : (existing.bestSteps || steps);
     const newRecord = {
       completed: true,
-      bestSteps: existing && existing.bestSteps ? Math.min(existing.bestSteps, steps) : steps,
+      bestSteps: bestSteps,
+      bestHintsUsed: isNewRecord ? hintsUsed : (existing.bestHintsUsed ?? hintsUsed),
+      lastSteps: steps,
+      lastHintsUsed: hintsUsed,
       date: dateKey,
       completedAt: Date.now()
     };
     saveDailyRecord(dateKey, newRecord);
     renderDailyInfo();
 
-    const bestSteps = newRecord.bestSteps;
-    const isNewRecord = !existing || !existing.bestSteps || steps < existing.bestSteps;
-    const recordMsg = isNewRecord ? `🏆 新纪录！步数：${steps}` : `本次步数：${steps}，最佳：${bestSteps}`;
-    resultEl.innerHTML = `<h2>每日挑战完成！</h2><p>所有展品复位，并从指定出口离开。</p><p>${recordMsg}</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+    const hintsText = hintsUsed === 0 ? "未使用提示" : `使用提示 ${hintsUsed} 次`;
+    const newRecordBadge = isNewRecord ? '<span class="daily-new-record-badge">🏆 新纪录！</span>' : "";
+
+    resultEl.innerHTML = `
+      <div class="daily-result-panel">
+        <h2>每日挑战完成！</h2>
+        <div class="daily-result-date">${dateStr}</div>
+        ${newRecordBadge}
+        <div class="daily-result-stats">
+          <div class="daily-result-stat">
+            <span class="stat-label">本次步数</span>
+            <span class="stat-value">${steps}</span>
+          </div>
+          <div class="daily-result-stat">
+            <span class="stat-label">最佳步数</span>
+            <span class="stat-value">${bestSteps}</span>
+          </div>
+          <div class="daily-result-stat">
+            <span class="stat-label">提示使用</span>
+            <span class="stat-value">${hintsUsed} 次</span>
+          </div>
+        </div>
+        <p class="daily-result-desc">所有展品复位，并从指定出口离开。</p>
+        <div class="daily-share-section">
+          <div class="daily-share-text" id="dailyShareText">${generateDailyShareText(dateStr, steps, bestSteps, hintsUsed, isNewRecord)}</div>
+          <button id="dailyCopyBtn" type="button" class="daily-copy-btn">📋 复制分享文案</button>
+        </div>
+        <div class="daily-result-actions">
+          <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
+          <button id="dailyRetryBtn" type="button" class="daily-retry-btn">再来一次</button>
+        </div>
+      </div>
+    `;
+    resultEl.classList.add("daily-result-style");
     resultEl.classList.remove("hidden");
     addLog("警报没有响，展厅恢复安静。每日挑战完成！");
     recordHistory("通关成功");
+
     const replayBtn = document.getElementById("replayBtn");
     if (replayBtn) replayBtn.addEventListener("click", () => openReplay(true));
+
+    const copyBtn = document.getElementById("dailyCopyBtn");
+    if (copyBtn) copyBtn.addEventListener("click", copyDailyShareText);
+
+    const retryBtn = document.getElementById("dailyRetryBtn");
+    if (retryBtn) retryBtn.addEventListener("click", () => {
+      resultEl.classList.add("hidden");
+      loadDailyChallenge();
+    });
+
     render();
     return;
   }
@@ -1495,6 +1549,7 @@ function win() {
       <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
       <button id="retryForStarsBtn" type="button" class="retry-stars-btn">重试刷星</button>
     `;
+    resultEl.classList.remove("daily-result-style");
     resultEl.classList.remove("hidden");
     addLog("警报没有响，展厅恢复安静。");
     recordHistory("通关成功");
@@ -1526,6 +1581,7 @@ function win() {
   }
 
   resultEl.innerHTML = `<h2>本关修复完成</h2><p>所有展品复位，并从指定出口离开。可以选择下一关继续。</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+  resultEl.classList.remove("daily-result-style");
   resultEl.classList.remove("hidden");
   addLog("警报没有响，展厅恢复安静。");
   recordHistory("通关成功");
@@ -1541,6 +1597,7 @@ function fail(reason) {
   updateStatsOnFail(state.levelIndex, reason);
 
   resultEl.innerHTML = `<h2>行动失败</h2><p>${reason}</p><button id="failRetryBtn" type="button">重试本关</button><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+  resultEl.classList.remove("daily-result-style");
   resultEl.classList.remove("hidden");
   addLog(reason);
   if (!state.history[state.history.length - 1] || state.history[state.history.length - 1].action !== "被发现") {
@@ -2766,6 +2823,8 @@ function loadDailyChallenge() {
   state = freshStateFromLevel(level);
   state.levelIndex = -3;
   resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
+  resetGameplayMetrics();
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
@@ -2791,14 +2850,17 @@ function renderDailyInfo() {
   let statusHtml = "";
   if (record) {
     if (record.completed) {
+      const bestHints = record.bestHintsUsed != null ? record.bestHintsUsed : "-";
+      const hintsText = bestHints === 0 ? "无提示" : `提示 ${bestHints} 次`;
       statusHtml = `
         <span class="daily-status completed">✅ 已完成</span>
         <span>最佳步数<strong>${record.bestSteps}</strong></span>
+        <span class="daily-hint-info">${hintsText}</span>
       `;
     } else {
       statusHtml = `
         <span class="daily-status pending">⏳ 挑战中</span>
-        <span>上次步数<strong>${record.bestSteps || "-"}</strong></span>
+        <span>上次步数<strong>${record.lastSteps || record.bestSteps || "-"}</strong></span>
       `;
     }
   } else {
@@ -2806,9 +2868,23 @@ function renderDailyInfo() {
   }
 
   infoEl.innerHTML = `
-    <div class="daily-date">挑战日期：${dateStr}</div>
-    <div class="daily-status-line">${statusHtml}</div>
+    <div class="daily-info-left">
+      <div class="daily-date">每日挑战 · ${dateStr}</div>
+      <div class="daily-status-line">${statusHtml}</div>
+    </div>
+    <div class="daily-info-right">
+      <button id="dailyQuickBtn" type="button" class="daily-quick-btn">
+        ${record && record.completed ? "再挑战一次" : "开始挑战"}
+      </button>
+    </div>
   `;
+
+  const quickBtn = document.getElementById("dailyQuickBtn");
+  if (quickBtn) {
+    quickBtn.addEventListener("click", () => {
+      loadDailyChallenge();
+    });
+  }
 }
 
 function calculateSteps() {
@@ -2820,6 +2896,65 @@ function calculateSteps() {
     }
   }
   return Math.max(1, steps);
+}
+
+function generateDailyShareText(dateStr, steps, bestSteps, hintsUsed, isNewRecord) {
+  const hintText = hintsUsed === 0 ? "无提示通关" : `使用 ${hintsUsed} 次提示`;
+  const recordText = isNewRecord ? "🏆 新纪录！" : "";
+  const shareText = `【博物馆夜间修复师·每日挑战】
+📅 ${dateStr}
+👣 本次步数：${steps} 步
+⭐ 最佳纪录：${bestSteps} 步
+💡 ${hintText}
+${recordText}
+快来挑战今日关卡吧！`;
+  return shareText;
+}
+
+function copyDailyShareText() {
+  const shareTextEl = document.getElementById("dailyShareText");
+  const copyBtn = document.getElementById("dailyCopyBtn");
+  if (!shareTextEl || !copyBtn) return;
+
+  const text = shareTextEl.textContent || shareTextEl.innerText;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showCopySuccess(copyBtn);
+    }).catch(() => {
+      fallbackCopy(text, copyBtn);
+    });
+  } else {
+    fallbackCopy(text, copyBtn);
+  }
+}
+
+function fallbackCopy(text, btn) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    document.execCommand("copy");
+    showCopySuccess(btn);
+  } catch (err) {
+    console.error("复制失败:", err);
+  }
+  document.body.removeChild(textArea);
+}
+
+function showCopySuccess(btn) {
+  const originalText = btn.textContent;
+  btn.textContent = "✓ 已复制";
+  btn.classList.add("copy-success");
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.classList.remove("copy-success");
+  }, 2000);
 }
 
 function clearHint() {

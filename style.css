@@ -1973,3 +1973,198 @@ h2 {
     justify-content: flex-end;
   }
 }
+
+.result.daily-result-style {
+  background: #2c2730;
+  color: #f4efe6;
+  border: 2px solid #e67e22;
+}
+
+.result.daily-result-style h2 {
+  color: #e67e22;
+}
+
+.daily-info-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.daily-info-right {
+  flex-shrink: 0;
+}
+
+.daily-quick-btn {
+  background: #e67e22;
+  color: #fff;
+  min-height: 36px;
+  padding: 0 18px;
+  font-size: 14px;
+}
+
+.daily-quick-btn:hover {
+  background: #f39c12;
+}
+
+.daily-hint-info {
+  font-size: 12px !important;
+  padding: 4px 10px !important;
+  background: rgba(155, 89, 182, 0.2) !important;
+  color: #bb8fce !important;
+  border: 1px solid #8e44ad;
+}
+
+.daily-result-panel {
+  text-align: center;
+}
+
+.daily-result-panel h2 {
+  color: #e67e22;
+  margin-bottom: 8px;
+  font-size: 24px;
+}
+
+.daily-result-date {
+  color: #7a7280;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.daily-new-record-badge {
+  display: inline-block;
+  padding: 6px 16px;
+  background: linear-gradient(135deg, #f39c12, #e67e22);
+  color: #fff;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 16px;
+  animation: recordPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes recordPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.daily-result-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.daily-result-stat {
+  padding: 14px 10px;
+  background: #201b20;
+  border-radius: 10px;
+  border: 1px solid #514956;
+}
+
+.daily-result-stat .stat-label {
+  display: block;
+  font-size: 12px;
+  color: #7a7280;
+  margin-bottom: 6px;
+}
+
+.daily-result-stat .stat-value {
+  display: block;
+  font-size: 24px;
+  font-weight: bold;
+  color: #d7bd77;
+}
+
+.daily-result-desc {
+  color: #cec4ba;
+  margin: 12px 0 20px;
+}
+
+.daily-share-section {
+  margin: 20px 0;
+  padding: 16px;
+  background: #201b20;
+  border-radius: 10px;
+  border: 1px solid #514956;
+  text-align: left;
+}
+
+.daily-share-text {
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #cec4ba;
+  white-space: pre-line;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #2c2730;
+  border-radius: 6px;
+  border: 1px dashed #514956;
+}
+
+.daily-copy-btn {
+  width: 100%;
+  background: #9b59b6;
+  color: #fff;
+  margin-top: 8px;
+}
+
+.daily-copy-btn:hover {
+  background: #8e44ad;
+}
+
+.daily-copy-btn.copy-success {
+  background: #2ecc71;
+  color: #fff;
+}
+
+.daily-result-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.daily-retry-btn {
+  background: #d7bd77;
+  color: #201b20;
+}
+
+.daily-retry-btn:hover {
+  background: #f4d03f;
+}
+
+.result .replay-trigger {
+  margin-top: 0;
+}
+
+@media (max-width: 600px) {
+  .daily-result-stats {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+
+  .daily-result-stat {
+    padding: 10px 6px;
+  }
+
+  .daily-result-stat .stat-value {
+    font-size: 18px;
+  }
+
+  .daily-result-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-info {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .daily-info-right {
+    text-align: center;
+  }
+
+  .daily-quick-btn {
+    width: 100%;
+  }
+}
