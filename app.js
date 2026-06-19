@@ -3062,4 +3062,558 @@ function bindAchievementControls() {
   });
 }
 
+// ============== 关卡诊断与求解系统 ==============
+
+function diagnoseLevel(level) {
+  const result = {
+    solvable: false,
+    checks: [],
+    issues: [],
+    warnings: [],
+    solution: null
+  };
+
+  const { walls, doors, keys: keyItems, exhibits, guards, player, exit } = level;
+  const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const screens = mechanisms.screens || [];
+
+  result.checks.push({ name: "基础要素", passed: true });
+
+  if (!player) {
+    result.issues.push("缺少玩家起点");
+    result.checks[result.checks.length - 1].passed = false;
+    return result;
+  }
+  if (!exit) {
+    result.issues.push("缺少出口");
+    result.checks[result.checks.length - 1].passed = false;
+    return result;
+  }
+  if (exhibits.length === 0) {
+    result.issues.push("至少需要一个展柜");
+    result.checks[result.checks.length - 1].passed = false;
+    return result;
+  }
+
+  const wallSet = new Set(walls);
+  const playerKey = pointKey(player);
+  const exitKey = pointKey(exit);
+
+  if (wallSet.has(playerKey)) {
+    result.issues.push("玩家起点在墙上");
+    result.checks[result.checks.length - 1].passed = false;
+  }
+  if (wallSet.has(exitKey)) {
+    result.issues.push("出口在墙上");
+    result.checks[result.checks.length - 1].passed = false;
+  }
+
+  result.checks.push({ name: "出口可达性", passed: true });
+  const reachAllDoorsOpen = bfsReachableWithScreens(walls, doors, player, false, screens);
+  if (!reachAllDoorsOpen.has(exitKey)) {
+    result.issues.push("出口不可达：即使所有门都打开，从玩家起点也无法到达出口");
+    result.checks[result.checks.length - 1].passed = false;
+  } else {
+    const reachDoorsClosed = bfsReachableWithScreens(walls, doors, player, true, screens);
+    if (!reachDoorsClosed.has(exitKey) && keyItems.length === 0 && doors.length > 0) {
+      result.warnings.push("出口被门封锁，但没有钥匙");
+    }
+  }
+
+  result.checks.push({ name: "展柜可修复性", passed: true });
+  for (let i = 0; i < exhibits.length; i++) {
+    const ex = exhibits[i];
+    const exKey = pointKey(ex);
+    if (wallSet.has(exKey)) {
+      result.issues.push(`展柜${i + 1}在墙上，无法修复`);
+      result.checks[result.checks.length - 1].passed = false;
+      continue;
+    }
+
+    const adjacentCells = getAdjacentCells(ex);
+    const reachableAdjacent = adjacentCells.filter(p => {
+      const pk = pointKey(p);
+      if (wallSet.has(pk)) return false;
+      return reachAllDoorsOpen.has(pk);
+    });
+
+    if (reachableAdjacent.length === 0) {
+      result.issues.push(`展柜${i + 1}无法邻接修复：周围没有可到达的相邻格子`);
+      result.checks[result.checks.length - 1].passed = false;
+    }
+  }
+
+  result.checks.push({ name: "钥匙可达性", passed: true });
+  if (doors.length > 0 && keyItems.length === 0) {
+    result.warnings.push("有门但没有钥匙，门可能无法打开");
+  }
+
+  for (let i = 0; i < keyItems.length; i++) {
+    const key = keyItems[i];
+    const keyK = pointKey(key);
+    if (wallSet.has(keyK)) {
+      result.issues.push(`钥匙${i + 1}在墙上`);
+      result.checks[result.checks.length - 1].passed = false;
+      continue;
+    }
+
+    const reachNoKeys = bfsReachableWithScreens(walls, doors, player, true, screens);
+    if (!reachNoKeys.has(keyK)) {
+      const reachWithKeys = bfsReachableWithScreens(walls, doors, player, false, screens);
+      if (!reachWithKeys.has(keyK)) {
+        result.issues.push(`钥匙${i + 1}被封死：无法到达该钥匙位置`);
+        result.checks[result.checks.length - 1].passed = false;
+      } else {
+        result.warnings.push(`钥匙${i + 1}需要先打开其他门才能拿到，注意钥匙顺序`);
+      }
+    }
+  }
+
+  result.checks.push({ name: "巡逻视线分析", passed: true });
+  if (guards.length > 0) {
+    const cycleLen = getGuardCycleLength(guards);
+    const alwaysBlocked = new Set();
+    const allCells = [];
+    for (let y = 0; y < BOARD_H; y++) {
+      for (let x = 0; x < BOARD_W; x++) {
+        allCells.push({ x, y });
+      }
+    }
+
+    allCells.forEach(cell => {
+      const ck = pointKey(cell);
+      if (wallSet.has(ck)) return;
+      let alwaysInVision = true;
+      for (let step = 0; step < cycleLen; step++) {
+        const vision = getGuardVisionAtStepWithScreensSimple(guards, step, walls, screens);
+        if (!vision.has(ck)) {
+          alwaysInVision = false;
+          break;
+        }
+      }
+      if (alwaysInVision) {
+        alwaysBlocked.add(ck);
+      }
+    });
+
+    const playerOnPath = bfsReachableWithScreens(walls, doors, player, false, screens);
+    const criticalPathCells = new Set();
+    playerOnPath.forEach(ck => {
+      if (alwaysBlocked.has(ck)) {
+        criticalPathCells.add(ck);
+      }
+    });
+
+    if (criticalPathCells.size > 0) {
+      const exitBlocked = alwaysBlocked.has(exitKey);
+      if (exitBlocked) {
+        result.issues.push("巡逻视线永久封锁出口：出口位置始终在巡逻员视野内");
+        result.checks[result.checks.length - 1].passed = false;
+      }
+
+      let allExhibitsBlocked = true;
+      for (const ex of exhibits) {
+        const exAdj = getAdjacentCells(ex).some(c => !alwaysBlocked.has(pointKey(c)) && reachAllDoorsOpen.has(pointKey(c)));
+        if (exAdj) {
+          allExhibitsBlocked = false;
+          break;
+        }
+      }
+      if (allExhibitsBlocked && exhibits.length > 0) {
+        result.issues.push("巡逻视线永久封锁所有展柜的修复位置");
+        result.checks[result.checks.length - 1].passed = false;
+      }
+
+      if (!exitBlocked && !allExhibitsBlocked && criticalPathCells.size > 0) {
+        result.warnings.push(`有 ${criticalPathCells.size} 个格子始终在巡逻视野内，可能影响通行`);
+      }
+    }
+  }
+
+  result.checks.push({ name: "完整求解验证", passed: false });
+  const solution = solveLevelDetailed(level);
+  if (solution) {
+    result.solvable = true;
+    result.solution = solution;
+    result.checks[result.checks.length - 1].passed = true;
+  } else {
+    result.issues.push("关卡无解：找不到合法的通关路线");
+    result.checks[result.checks.length - 1].passed = false;
+
+    if (guards.length > 0 && result.checks.filter(c => c.name !== "完整求解验证").every(c => c.passed)) {
+      result.warnings.push("静态检查通过但动态无解，可能是巡逻时机问题导致无法通过");
+    }
+  }
+
+  return result;
+}
+
+function getAdjacentCells(pos) {
+  const cells = [];
+  const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
+  for (const [dx, dy] of dirs) {
+    const nx = pos.x + dx;
+    const ny = pos.y + dy;
+    if (nx >= 0 && nx < BOARD_W && ny >= 0 && ny < BOARD_H) {
+      cells.push({ x: nx, y: ny });
+    }
+  }
+  return cells;
+}
+
+function bfsReachableWithScreens(walls, doors, start, considerDoorsClosed, screens) {
+  const reachable = new Set();
+  const queue = [{ x: start.x, y: start.y }];
+  reachable.add(pointKey(start));
+  const wallSet = new Set(walls);
+  const doorSet = new Set(doors.map((d) => pointKey(d)));
+  const screenSet = new Set((screens || []).map(s => pointKey(s)));
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      const nkey = `${nx},${ny}`;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      if (reachable.has(nkey)) continue;
+      if (wallSet.has(nkey)) continue;
+      if (screenSet.has(nkey)) continue;
+      if (considerDoorsClosed && doorSet.has(nkey)) continue;
+      reachable.add(nkey);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return reachable;
+}
+
+function getGuardVisionAtStepWithScreensSimple(guards, step, walls, screens) {
+  const vision = new Set();
+  const wallSet = new Set(walls);
+  const screenSet = new Set((screens || []).map(s => pointKey(s)));
+  const maxRange = 2;
+  guards.forEach((guard) => {
+    const pos = guard.path[step % guard.path.length];
+    vision.add(pointKey(pos));
+    const nextPos = guard.path[(step + 1) % guard.path.length];
+    const dx = Math.sign(nextPos.x - pos.x);
+    const dy = Math.sign(nextPos.y - pos.y);
+    for (let i = 1; i <= maxRange; i++) {
+      const p = { x: pos.x + dx * i, y: pos.y + dy * i };
+      if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+      if (wallSet.has(pointKey(p))) break;
+      if (screenSet.has(pointKey(p))) break;
+      vision.add(pointKey(p));
+    }
+  });
+  return vision;
+}
+
+function solveLevelDetailed(level) {
+  const { walls, doors, keys: keyItems, exhibits, guards, player: startPos, exit } = level;
+  const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const pressurePlates = mechanisms.pressurePlates || [];
+  const screens = mechanisms.screens || [];
+  const lights = mechanisms.lights || [];
+
+  const numExhibits = exhibits.length;
+  const numDoors = doors.length;
+  const numPlates = pressurePlates.length;
+  const numLights = lights.length;
+  const cycleLen = getGuardCycleLength(guards);
+
+  function stateKeyObj(s) {
+    const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
+    const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
+    const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
+    const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
+    const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
+    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}`;
+  }
+
+  function getVisionAtStepObj(step, screenList, visionReduced) {
+    const vision = new Set();
+    const wallSet = new Set(walls);
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const maxRange = visionReduced ? 1 : 2;
+    guards.forEach((guard) => {
+      const pos = guard.path[step % guard.path.length];
+      vision.add(pointKey(pos));
+      const nextPos = guard.path[(step + 1) % guard.path.length];
+      const dx = Math.sign(nextPos.x - pos.x);
+      const dy = Math.sign(nextPos.y - pos.y);
+      for (let i = 1; i <= maxRange; i++) {
+        const p = { x: pos.x + dx * i, y: pos.y + dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
+  }
+
+  const visited = new Set();
+  const initial = {
+    pos: { ...startPos },
+    keys: 0,
+    keysTaken: new Array(keyItems.length).fill(false),
+    doorsOpen: new Array(numDoors).fill(false),
+    fixed: new Array(numExhibits).fill(false),
+    plateTriggered: new Array(numPlates).fill(false),
+    screens: screens.map(s => ({ ...s })),
+    lightsActive: new Array(numLights).fill(false),
+    visionReduced: false,
+    pendingVisionReduction: false,
+    step: 0,
+    ap: 4,
+    path: [{ ...startPos }],
+    actions: ["开局"]
+  };
+
+  const initKey = stateKeyObj(initial);
+  visited.add(initKey);
+
+  const queue = [initial];
+  let iterations = 0;
+  const maxIterations = 100000;
+
+  while (queue.length > 0 && iterations < maxIterations) {
+    iterations++;
+    const cur = queue.shift();
+
+    const allFixed = cur.fixed.every(f => f);
+    const atExit = samePoint(cur.pos, exit);
+    if (allFixed && atExit) {
+      return {
+        steps: cur.path.length,
+        path: cur.path,
+        actions: cur.actions,
+        totalActions: iterations
+      };
+    }
+
+    const dirs = [
+      [1, 0, "向右移动"],
+      [-1, 0, "向左移动"],
+      [0, 1, "向下移动"],
+      [0, -1, "向上移动"]
+    ];
+
+    for (const [dx, dy, actionName] of dirs) {
+      if (cur.ap <= 0) continue;
+      const nx = cur.pos.x + dx;
+      const ny = cur.pos.y + dy;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      const newPos = { x: nx, y: ny };
+      const pk = pointKey(newPos);
+      if (walls.includes(pk)) continue;
+
+      let ns = {
+        pos: { ...newPos },
+        keys: cur.keys,
+        keysTaken: [...cur.keysTaken],
+        doorsOpen: [...cur.doorsOpen],
+        fixed: [...cur.fixed],
+        plateTriggered: [...cur.plateTriggered],
+        screens: cur.screens.map(sc => ({ ...sc })),
+        lightsActive: [...cur.lightsActive],
+        visionReduced: cur.visionReduced,
+        pendingVisionReduction: cur.pendingVisionReduction,
+        step: cur.step,
+        ap: cur.ap - 1,
+        path: [...cur.path, { ...newPos }],
+        actions: [...cur.actions, actionName]
+      };
+
+      let actionLabel = actionName;
+
+      const screenIdx = ns.screens.findIndex(sc => samePoint(sc, newPos));
+      if (screenIdx >= 0) {
+        const pushDest = { x: nx + dx, y: ny + dy };
+        if (pushDest.x < 0 || pushDest.x >= BOARD_W || pushDest.y < 0 || pushDest.y >= BOARD_H) continue;
+        if (walls.includes(pointKey(pushDest))) continue;
+        const pushDoorIdx = doors.findIndex(d => samePoint(d, pushDest));
+        if (pushDoorIdx >= 0 && !ns.doorsOpen[pushDoorIdx]) continue;
+        if (ns.screens.some(sc => samePoint(sc, pushDest))) continue;
+        if (exhibits.some(e => samePoint(e, pushDest))) continue;
+        ns.screens[screenIdx] = { ...pushDest };
+        actionLabel = "推屏风+" + actionLabel;
+      }
+
+      const doorIdx = doors.findIndex(d => d.x === nx && d.y === ny);
+      if (doorIdx >= 0 && !ns.doorsOpen[doorIdx]) {
+        if (ns.keys <= 0) continue;
+        ns.keys -= 1;
+        ns.doorsOpen[doorIdx] = true;
+        actionLabel = "开门+" + actionLabel;
+      }
+
+      const vision = getVisionAtStepObj(cur.step, ns.screens, ns.visionReduced);
+      if (vision.has(pk)) continue;
+
+      for (let i = 0; i < keyItems.length; i++) {
+        if (!ns.keysTaken[i] && keyItems[i].x === nx && keyItems[i].y === ny) {
+          ns.keys += 1;
+          ns.keysTaken[i] = true;
+          actionLabel += "+拾钥匙";
+        }
+      }
+
+      for (let pi = 0; pi < numPlates; pi++) {
+        const plate = pressurePlates[pi];
+        const playerOn = samePoint(ns.pos, plate);
+        if (playerOn && !ns.plateTriggered[pi]) {
+          ns.plateTriggered[pi] = true;
+          for (const td of plate.targetDoors) {
+            const tdi = doors.findIndex(d => samePoint(d, td));
+            if (tdi >= 0) ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
+          }
+          actionLabel += "+踩压板";
+        } else if (!playerOn && ns.plateTriggered[pi]) {
+          ns.plateTriggered[pi] = false;
+        }
+      }
+
+      for (let li = 0; li < numLights; li++) {
+        const light = lights[li];
+        if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
+          ns.lightsActive[li] = true;
+          ns.pendingVisionReduction = true;
+          actionLabel += "+熄灯";
+        }
+      }
+
+      ns.actions[ns.actions.length - 1] = actionLabel;
+
+      if (ns.ap <= 0) {
+        const nextStep = (cur.step + 1) % cycleLen;
+        const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction);
+        if (!nextVision.has(pk)) {
+          ns.step = nextStep;
+          ns.ap = 4;
+          ns.visionReduced = ns.pendingVisionReduction;
+          ns.pendingVisionReduction = false;
+          ns.actions[ns.actions.length - 1] = actionLabel + "+等待";
+          const sk = stateKeyObj(ns);
+          if (!visited.has(sk)) {
+            visited.add(sk);
+            const allF = ns.fixed.every(f => f);
+            const atE = samePoint(ns.pos, exit);
+            if (allF && atE) {
+              return {
+                steps: ns.path.length,
+                path: ns.path,
+                actions: ns.actions,
+                totalActions: iterations
+              };
+            }
+            queue.push(ns);
+          }
+        }
+      } else {
+        const sk = stateKeyObj(ns);
+        if (!visited.has(sk)) {
+          visited.add(sk);
+          queue.push(ns);
+        }
+      }
+    }
+
+    for (let i = 0; i < numExhibits; i++) {
+      if (cur.ap <= 0) continue;
+      if (!cur.fixed[i] && isAdjacent(cur.pos, exhibits[i])) {
+        const ns = {
+          pos: { ...cur.pos },
+          keys: cur.keys,
+          keysTaken: [...cur.keysTaken],
+          doorsOpen: [...cur.doorsOpen],
+          fixed: [...cur.fixed],
+          plateTriggered: [...cur.plateTriggered],
+          screens: cur.screens.map(sc => ({ ...sc })),
+          lightsActive: [...cur.lightsActive],
+          visionReduced: cur.visionReduced,
+          pendingVisionReduction: cur.pendingVisionReduction,
+          step: cur.step,
+          ap: cur.ap - 1,
+          path: [...cur.path, { ...cur.pos }],
+          actions: [...cur.actions, "修复展柜"]
+        };
+        ns.fixed[i] = true;
+
+        if (ns.ap <= 0) {
+          const nextStep = (cur.step + 1) % cycleLen;
+          const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction);
+          const pk = pointKey(ns.pos);
+          if (!nextVision.has(pk)) {
+            ns.step = nextStep;
+            ns.ap = 4;
+            ns.visionReduced = ns.pendingVisionReduction;
+            ns.pendingVisionReduction = false;
+            ns.actions[ns.actions.length - 1] = "修复展柜+等待";
+            const sk = stateKeyObj(ns);
+            if (!visited.has(sk)) {
+              visited.add(sk);
+              const allF = ns.fixed.every(f => f);
+              const atE = samePoint(ns.pos, exit);
+              if (allF && atE) {
+                return {
+                  steps: ns.path.length,
+                  path: ns.path,
+                  actions: ns.actions,
+                  totalActions: iterations
+                };
+              }
+              queue.push(ns);
+            }
+          }
+        } else {
+          const sk = stateKeyObj(ns);
+          if (!visited.has(sk)) {
+            visited.add(sk);
+            queue.push(ns);
+          }
+        }
+      }
+    }
+
+    {
+      const nextStep = (cur.step + 1) % cycleLen;
+      const nextVision = getVisionAtStepObj(nextStep, cur.screens, cur.pendingVisionReduction);
+      const pk = pointKey(cur.pos);
+      if (!nextVision.has(pk)) {
+        const ns = {
+          pos: { ...cur.pos },
+          keys: cur.keys,
+          keysTaken: [...cur.keysTaken],
+          doorsOpen: [...cur.doorsOpen],
+          fixed: [...cur.fixed],
+          plateTriggered: [...cur.plateTriggered],
+          screens: cur.screens.map(sc => ({ ...sc })),
+          lightsActive: [...cur.lightsActive],
+          visionReduced: cur.pendingVisionReduction,
+          pendingVisionReduction: false,
+          step: nextStep,
+          ap: 4,
+          path: [...cur.path, { ...cur.pos }],
+          actions: [...cur.actions, "等待回合"]
+        };
+        const sk = stateKeyObj(ns);
+        if (!visited.has(sk)) {
+          visited.add(sk);
+          queue.push(ns);
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
 init();

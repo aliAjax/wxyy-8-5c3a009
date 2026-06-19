@@ -180,6 +180,20 @@
             <input type="text" id="editorLevelName" value="自定义" maxlength="10">
           </div>
           <div class="editor-warning" id="editorWarning"></div>
+          <div class="editor-diagnosis" id="editorDiagnosis">
+            <div class="diagnosis-header">
+              <h4>关卡诊断</h4>
+              <button type="button" id="editorDiagnoseBtn" class="diagnose-btn">立即验证</button>
+            </div>
+            <div class="diagnosis-status" id="diagnosisStatus">
+              <span class="status-icon">⏳</span>
+              <span class="status-text">等待验证...</span>
+            </div>
+            <div class="diagnosis-checks" id="diagnosisChecks"></div>
+            <div class="diagnosis-issues" id="diagnosisIssues"></div>
+            <div class="diagnosis-warnings" id="diagnosisWarnings"></div>
+            <div class="diagnosis-solution" id="diagnosisSolution"></div>
+          </div>
         </aside>
       </div>
     </section>

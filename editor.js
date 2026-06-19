@@ -20,6 +20,13 @@ const editorPlateCountEl = document.getElementById("editorPlateCount");
 const editorScreenCountEl = document.getElementById("editorScreenCount");
 const editorLightCountEl = document.getElementById("editorLightCount");
 
+const editorDiagnoseBtn = document.getElementById("editorDiagnoseBtn");
+const diagnosisStatusEl = document.getElementById("diagnosisStatus");
+const diagnosisChecksEl = document.getElementById("diagnosisChecks");
+const diagnosisIssuesEl = document.getElementById("diagnosisIssues");
+const diagnosisWarningsEl = document.getElementById("diagnosisWarnings");
+const diagnosisSolutionEl = document.getElementById("diagnosisSolution");
+
 const GRID_WIDTH = 8;
 const GRID_HEIGHT = 7;
 const STORAGE_KEY = "museum_editor_level";
@@ -28,7 +35,9 @@ let editorState = {
   currentTool: "wall",
   level: createEmptyLevel(),
   currentGuardPath: null,
-  isOpen: false
+  isOpen: false,
+  diagnosisTimer: null,
+  lastDiagnosisResult: null
 };
 
 function createEmptyLevel() {
@@ -62,6 +71,7 @@ function bindEditorEvents() {
   editorSaveBtn.addEventListener("click", saveLevelToStorage);
   editorLoadBtn.addEventListener("click", loadLevelFromStorage);
   editorClearBtn.addEventListener("click", clearEditorLevel);
+  editorDiagnoseBtn.addEventListener("click", runDiagnosis);
   editorLevelNameInput.addEventListener("input", (e) => {
     editorState.level.name = e.target.value || "自定义";
   });
@@ -96,6 +106,8 @@ function toggleEditor() {
   if (editorState.isOpen) {
     renderEditorBoard();
     updateEditorStats();
+    validateLevel();
+    scheduleDiagnosis();
   }
 }
 
@@ -201,6 +213,7 @@ function handleTileClick(x, y) {
   renderEditorBoard();
   updateEditorStats();
   validateLevel();
+  scheduleDiagnosis();
 }
 
 function placeOrRemove(tool, point) {
@@ -455,6 +468,21 @@ function playEditorLevel() {
   }
 
   const levelData = JSON.parse(JSON.stringify(editorState.level));
+  if (!levelData.mechanisms) {
+    levelData.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+  }
+
+  if (typeof diagnoseLevel === "function") {
+    const result = diagnoseLevel(levelData);
+    editorState.lastDiagnosisResult = result;
+    renderDiagnosisResult(result);
+    if (!result.solvable) {
+      if (!confirm("当前关卡似乎不可通关，确定要试玩吗？")) {
+        return;
+      }
+    }
+  }
+
   if (typeof loadCustomLevel === "function") {
     loadCustomLevel(levelData);
     toggleEditor();
@@ -463,10 +491,37 @@ function playEditorLevel() {
 
 function saveLevelToStorage() {
   finishGuardPath();
+
+  if (!validateLevel()) {
+    showWarning("关卡不完整，无法保存");
+    return;
+  }
+
   const levelData = JSON.parse(JSON.stringify(editorState.level));
+  if (!levelData.mechanisms) {
+    levelData.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+  }
+
+  let solvable = true;
+  if (typeof diagnoseLevel === "function") {
+    const result = diagnoseLevel(levelData);
+    editorState.lastDiagnosisResult = result;
+    renderDiagnosisResult(result);
+    solvable = result.solvable;
+    if (!solvable) {
+      if (!confirm("当前关卡不可通关，是否仍要保存？\n\n问题：" + result.issues.slice(0, 2).join("；"))) {
+        return;
+      }
+    }
+  }
+
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(levelData));
-    showWarning("关卡已保存到本地");
+    if (solvable) {
+      showWarning("关卡已保存到本地 ✓");
+    } else {
+      showWarning("关卡已保存（不可通关）");
+    }
   } catch (e) {
     showWarning("保存失败");
   }
@@ -482,6 +537,7 @@ function loadLevelFromStorage() {
       renderEditorBoard();
       updateEditorStats();
       validateLevel();
+      scheduleDiagnosis();
       showWarning("关卡已读取");
     } else {
       showWarning("没有找到存档");
@@ -499,7 +555,124 @@ function clearEditorLevel() {
     renderEditorBoard();
     updateEditorStats();
     validateLevel();
+    scheduleDiagnosis();
   }
+}
+
+function scheduleDiagnosis() {
+  if (editorState.diagnosisTimer) {
+    clearTimeout(editorState.diagnosisTimer);
+  }
+  diagnosisStatusEl.querySelector(".status-icon").textContent = "⏳";
+  diagnosisStatusEl.querySelector(".status-text").textContent = "正在分析...";
+  diagnosisStatusEl.className = "diagnosis-status status-analyzing";
+
+  editorState.diagnosisTimer = setTimeout(() => {
+    runDiagnosis();
+  }, 500);
+}
+
+function runDiagnosis() {
+  finishGuardPath();
+
+  const levelData = JSON.parse(JSON.stringify(editorState.level));
+  if (!levelData.mechanisms) {
+    levelData.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+  }
+
+  if (!levelData.player || !levelData.exit || levelData.exhibits.length === 0) {
+    diagnosisStatusEl.querySelector(".status-icon").textContent = "⚠️";
+    diagnosisStatusEl.querySelector(".status-text").textContent = "关卡不完整";
+    diagnosisStatusEl.className = "diagnosis-status status-incomplete";
+    diagnosisChecksEl.innerHTML = "";
+    diagnosisIssuesEl.innerHTML = "";
+    diagnosisWarningsEl.innerHTML = "";
+    diagnosisSolutionEl.innerHTML = "";
+    editorState.lastDiagnosisResult = null;
+    return;
+  }
+
+  try {
+    if (typeof diagnoseLevel === "function") {
+      const result = diagnoseLevel(levelData);
+      editorState.lastDiagnosisResult = result;
+      renderDiagnosisResult(result);
+    } else {
+      diagnosisStatusEl.querySelector(".status-icon").textContent = "❌";
+      diagnosisStatusEl.querySelector(".status-text").textContent = "诊断系统未加载";
+      diagnosisStatusEl.className = "diagnosis-status status-error";
+    }
+  } catch (e) {
+    console.error("诊断出错:", e);
+    diagnosisStatusEl.querySelector(".status-icon").textContent = "❌";
+    diagnosisStatusEl.querySelector(".status-text").textContent = "诊断出错";
+    diagnosisStatusEl.className = "diagnosis-status status-error";
+  }
+}
+
+function renderDiagnosisResult(result) {
+  if (result.solvable) {
+    diagnosisStatusEl.querySelector(".status-icon").textContent = "✅";
+    diagnosisStatusEl.querySelector(".status-text").textContent = "关卡可通关";
+    diagnosisStatusEl.className = "diagnosis-status status-solvable";
+  } else {
+    diagnosisStatusEl.querySelector(".status-icon").textContent = "❌";
+    diagnosisStatusEl.querySelector(".status-text").textContent = "关卡不可通关";
+    diagnosisStatusEl.className = "diagnosis-status status-unsolvable";
+  }
+
+  let checksHtml = "";
+  result.checks.forEach(check => {
+    const icon = check.passed ? "✓" : "✗";
+    const className = check.passed ? "check-item check-passed" : "check-item check-failed";
+    checksHtml += `<div class="${className}"><span class="check-icon">${icon}</span><span class="check-name">${check.name}</span></div>`;
+  });
+  diagnosisChecksEl.innerHTML = checksHtml;
+
+  if (result.issues.length > 0) {
+    let issuesHtml = `<div class="diagnosis-section-title">问题</div>`;
+    result.issues.forEach(issue => {
+      issuesHtml += `<div class="issue-item">⚠️ ${issue}</div>`;
+    });
+    diagnosisIssuesEl.innerHTML = issuesHtml;
+  } else {
+    diagnosisIssuesEl.innerHTML = "";
+  }
+
+  if (result.warnings.length > 0) {
+    let warningsHtml = `<div class="diagnosis-section-title">提示</div>`;
+    result.warnings.forEach(warning => {
+      warningsHtml += `<div class="warning-item">💡 ${warning}</div>`;
+    });
+    diagnosisWarningsEl.innerHTML = warningsHtml;
+  } else {
+    diagnosisWarningsEl.innerHTML = "";
+  }
+
+  if (result.solution && result.solution.actions) {
+    const steps = result.solution.actions.length;
+    let solutionHtml = `<div class="diagnosis-section-title">示例解法</div>`;
+    solutionHtml += `<div class="solution-info">约 ${steps} 步完成</div>`;
+    solutionHtml += `<div class="solution-actions">`;
+    const previewActions = result.solution.actions.slice(0, 8);
+    previewActions.forEach((action, i) => {
+      solutionHtml += `<span class="action-step">${i + 1}. ${action}</span>`;
+    });
+    if (result.solution.actions.length > 8) {
+      solutionHtml += `<span class="action-more">... 还有 ${result.solution.actions.length - 8} 步</span>`;
+    }
+    solutionHtml += `</div>`;
+    diagnosisSolutionEl.innerHTML = solutionHtml;
+  } else {
+    diagnosisSolutionEl.innerHTML = "";
+  }
+}
+
+function isLevelSolvable() {
+  if (editorState.lastDiagnosisResult) {
+    return editorState.lastDiagnosisResult.solvable;
+  }
+  return false;
 }
 
 initEditor();
