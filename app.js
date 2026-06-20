@@ -3116,192 +3116,11 @@ function canPassWallDoor(pos, walls, doors, keys, keysOnGround, doorsOpen) {
 }
 
 function verifyLevelSolvable(level) {
-  const { walls, doors, keys: keyItems, exhibits, guards, player: startPos, exit } = level;
-  const numExhibits = exhibits.length;
-  const numDoors = doors.length;
-  const cycleLen = getGuardCycleLength(guards);
-
-  const doorsOpenInit = new Array(numDoors).fill(false);
-  const keysTakenInit = new Array(keyItems.length).fill(false);
-  const fixedInit = new Array(numExhibits).fill(false);
-
-  function stateKey(pos, keysCount, exhibitBitmask, step) {
-    return `${pos.x},${pos.y}|${keysCount}|${exhibitBitmask}|${step % cycleLen}`;
-  }
-
-  const visited = new Set();
-  const initialKey = stateKey(startPos, 0, 0, 0);
-  visited.add(initialKey);
-
-  const queue = [
-    {
-      pos: { ...startPos },
-      keys: 0,
-      keysTaken: [...keysTakenInit],
-      doorsOpen: [...doorsOpenInit],
-      fixed: [...fixedInit],
-      step: 0,
-      ap: 4
-    }
-  ];
-
-  let iterations = 0;
-  const maxIterations = 50000;
-
-  while (queue.length > 0 && iterations < maxIterations) {
-    iterations++;
-    const cur = queue.shift();
-
-    const mask = exhibitMask(exhibits, cur.fixed);
-    if (allExhibitsFixed(mask, numExhibits) && cur.pos.x === exit.x && cur.pos.y === exit.y) {
-      return true;
-    }
-
-    const dirs = [
-      [1, 0],
-      [-1, 0],
-      [0, 1],
-      [0, -1]
-    ];
-    for (const [dx, dy] of dirs) {
-      const nx = cur.pos.x + dx;
-      const ny = cur.pos.y + dy;
-      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
-
-      const newPos = { x: nx, y: ny };
-      const pk = pointKey(newPos);
-      if (walls.includes(pk)) continue;
-
-      let newKeys = cur.keys;
-      const newDoorsOpen = [...cur.doorsOpen];
-      const newKeysTaken = [...cur.keysTaken];
-
-      const doorIdx = doors.findIndex((d) => d.x === nx && d.y === ny);
-      if (doorIdx >= 0 && !newDoorsOpen[doorIdx]) {
-        if (newKeys <= 0) continue;
-        newKeys -= 1;
-        newDoorsOpen[doorIdx] = true;
-      }
-
-      const vision = getGuardVisionAtStep(guards, cur.step, walls);
-      if (vision.has(pk)) continue;
-
-      for (let i = 0; i < keyItems.length; i++) {
-        if (!newKeysTaken[i] && keyItems[i].x === nx && keyItems[i].y === ny) {
-          newKeys += 1;
-          newKeysTaken[i] = true;
-        }
-      }
-
-      const newFixed = [...cur.fixed];
-      const newMask = exhibitMask(exhibits, newFixed);
-      const sk = stateKey(newPos, newKeys, newMask, cur.step);
-
-      if (!visited.has(sk)) {
-        visited.add(sk);
-        const newAp = cur.ap - 1;
-
-        if (newAp <= 0) {
-          const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getGuardVisionAtStep(guards, nextStep, walls);
-          if (!nextVision.has(pk)) {
-            const nextSk = stateKey(newPos, newKeys, newMask, nextStep);
-            if (!visited.has(nextSk)) {
-              visited.add(nextSk);
-              queue.push({
-                pos: newPos,
-                keys: newKeys,
-                keysTaken: newKeysTaken,
-                doorsOpen: newDoorsOpen,
-                fixed: newFixed,
-                step: nextStep,
-                ap: 4
-              });
-            }
-          }
-        } else {
-          queue.push({
-            pos: newPos,
-            keys: newKeys,
-            keysTaken: newKeysTaken,
-            doorsOpen: newDoorsOpen,
-            fixed: newFixed,
-            step: cur.step,
-            ap: newAp
-          });
-        }
-      }
-    }
-
-    for (let i = 0; i < numExhibits; i++) {
-      if (!cur.fixed[i] && isAdjacent(cur.pos, exhibits[i])) {
-        const newFixed = [...cur.fixed];
-        newFixed[i] = true;
-        const newMask = exhibitMask(exhibits, newFixed);
-        const sk = stateKey(cur.pos, cur.keys, newMask, cur.step);
-
-        if (!visited.has(sk)) {
-          visited.add(sk);
-          const newAp = cur.ap - 1;
-
-          if (newAp <= 0) {
-            const nextStep = (cur.step + 1) % cycleLen;
-            const nextVision = getGuardVisionAtStep(guards, nextStep, walls);
-            const pk = pointKey(cur.pos);
-            if (!nextVision.has(pk)) {
-              const nextSk = stateKey(cur.pos, cur.keys, newMask, nextStep);
-              if (!visited.has(nextSk)) {
-                visited.add(nextSk);
-                queue.push({
-                  pos: { ...cur.pos },
-                  keys: cur.keys,
-                  keysTaken: [...cur.keysTaken],
-                  doorsOpen: [...cur.doorsOpen],
-                  fixed: newFixed,
-                  step: nextStep,
-                  ap: 4
-                });
-              }
-            }
-          } else {
-            queue.push({
-              pos: { ...cur.pos },
-              keys: cur.keys,
-              keysTaken: [...cur.keysTaken],
-              doorsOpen: [...cur.doorsOpen],
-              fixed: newFixed,
-              step: cur.step,
-              ap: newAp
-            });
-          }
-        }
-      }
-    }
-
-    {
-      const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getGuardVisionAtStep(guards, nextStep, walls);
-      const pk = pointKey(cur.pos);
-      if (!nextVision.has(pk)) {
-        const mask = exhibitMask(exhibits, cur.fixed);
-        const nextSk = stateKey(cur.pos, cur.keys, mask, nextStep);
-        if (!visited.has(nextSk)) {
-          visited.add(nextSk);
-          queue.push({
-            pos: { ...cur.pos },
-            keys: cur.keys,
-            keysTaken: [...cur.keysTaken],
-            doorsOpen: [...cur.doorsOpen],
-            fixed: [...cur.fixed],
-            step: nextStep,
-            ap: 4
-          });
-        }
-      }
-    }
-  }
-
-  return false;
+  const result = unifiedSolveLevel(level, {
+    maxIterations: 200000,
+    mode: 'verify'
+  });
+  return result && result.solvable;
 }
 
 function generateDailyLevel(dateKey) {
@@ -3886,69 +3705,15 @@ function advanceHintLightAndCameraEffects(s) {
 
 function searchHintPath() {
   const { walls, doors, keys: keyItems, exhibits, guards, exit } = state.level;
-  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
-  const pressurePlates = mechanisms.pressurePlates || [];
-  const screens = mechanisms.screens || [];
-  const lights = mechanisms.lights || [];
-  const cameras = mechanisms.cameras || [];
-
-  const numExhibits = exhibits.length;
-  const numDoors = doors.length;
-  const numPlates = pressurePlates.length;
-  const numLights = lights.length;
-  const numCameras = cameras.length;
-  const cycleLen = getGuardCycleLength(guards);
-
-  const guardInitSteps = guards.map(g => g.step);
-
-  function getCameraVisionSetForHint(screenList, visionReduced, camerasDisabled) {
-    const vision = new Set();
-    if (camerasDisabled) return vision;
-    const wallSet = new Set(walls);
-    const screenSet = new Set(screenList.map(s => pointKey(s)));
-    const camRange = visionReduced ? 3 : 6;
-    cameras.forEach(cam => {
-      if (cam.disabled) return;
-      const vec = cameraDirToVector(cam.direction);
-      for (let i = 1; i <= camRange; i++) {
-        const p = { x: cam.x + vec.dx * i, y: cam.y + vec.dy * i };
-        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
-        if (wallSet.has(pointKey(p))) break;
-        if (screenSet.has(pointKey(p))) break;
-        vision.add(pointKey(p));
-      }
-    });
-    return vision;
-  }
-
-  function getVisionAtOffset(offset, screenList, visionReduced, camerasDisabled) {
-    const vision = new Set();
-    const wallSet = new Set(walls);
-    const screenSet = new Set(screenList.map(s => pointKey(s)));
-    const maxRange = visionReduced ? 1 : 2;
-    guards.forEach((guard, gi) => {
-      const gs = (guardInitSteps[gi] + offset) % guard.path.length;
-      const pos = guard.path[gs];
-      vision.add(pointKey(pos));
-      const nextPos = guard.path[(gs + 1) % guard.path.length];
-      const dx = Math.sign(nextPos.x - pos.x);
-      const dy = Math.sign(nextPos.y - pos.y);
-      for (let i = 1; i <= maxRange; i++) {
-        const p = { x: pos.x + dx * i, y: pos.y + dy * i };
-        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
-        if (wallSet.has(pointKey(p))) break;
-        if (screenSet.has(pointKey(p))) break;
-        vision.add(pointKey(p));
-      }
-    });
-    const camVision = getCameraVisionSetForHint(screenList, visionReduced, camerasDisabled);
-    camVision.forEach(k => vision.add(k));
-    return vision;
-  }
 
   const currentDoorsOpen = doors.map(d => d.open);
   const currentKeysTaken = keyItems.map(k => k.taken);
   const currentFixed = exhibits.map(e => e.fixed);
+  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
+  const pressurePlates = mechanisms.pressurePlates || [];
+  const screens = mechanisms.screens || [];
+  const lights = mechanisms.lights || [];
+
   const currentPlateTriggered = pressurePlates.map(p => p.triggered);
   const currentScreens = screens.map(s => ({ ...s }));
   const currentLightsActive = lights.map(l => l.active);
@@ -3959,9 +3724,8 @@ function searchHintPath() {
     return { path: [{ ...state.player }], actionLabels: ["已完成"] };
   }
 
-  const visited = new Set();
-  const initial = {
-    pos: { ...state.player },
+  const startState = {
+    player: { ...state.player },
     keys: state.keys,
     keysTaken: [...currentKeysTaken],
     doorsOpen: [...currentDoorsOpen],
@@ -3971,191 +3735,25 @@ function searchHintPath() {
     lightsActive: [...currentLightsActive],
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
-    camerasDisabled: (state.cameraShutdownTurns || 0) > 0,
     cameraShutdownTurns: state.cameraShutdownTurns || 0,
-    step: 0,
+    alertLevel: state.alertLevel,
     ap: state.ap,
-    path: [{ ...state.player }],
-    actionLabels: ["当前位置"]
+    step: 0,
+    guards: state.level.guards,
+    openedDoors: state.level.openedDoors || []
   };
 
-  const initKey = hintStateKey(initial, cycleLen, numExhibits, numPlates, numLights, numCameras);
-  visited.add(initKey);
+  const result = unifiedSolveLevel(state.level, {
+    startState: startState,
+    maxIterations: 300000,
+    mode: 'hint'
+  });
 
-  const queue = [initial];
-  let iterations = 0;
-  const maxIterations = 80000;
-
-  function checkAndEnqueue(newState) {
-    const allFixed = newState.fixed.every(f => f);
-    const atExit = samePoint(newState.pos, exit);
-    if (allFixed && atExit) {
-      return newState;
-    }
-    const sk = hintStateKey(newState, cycleLen, numExhibits, numPlates, numLights, numCameras);
-    if (!visited.has(sk)) {
-      visited.add(sk);
-      queue.push(newState);
-    }
-    return null;
-  }
-
-  while (queue.length > 0 && iterations < maxIterations) {
-    iterations++;
-    const cur = queue.shift();
-
-    const dirs = [
-      [1, 0, "右"],
-      [-1, 0, "左"],
-      [0, 1, "下"],
-      [0, -1, "上"]
-    ];
-
-    for (const [dx, dy, dirName] of dirs) {
-      if (cur.ap <= 0) continue;
-      const nx = cur.pos.x + dx;
-      const ny = cur.pos.y + dy;
-      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
-      const newPos = { x: nx, y: ny };
-      const pk = pointKey(newPos);
-      if (walls.includes(pk)) continue;
-
-      const ns = cloneHintState(cur);
-      let actionLabel = `向${dirName}`;
-      let usedKey = false;
-
-      const screenIdx = ns.screens.findIndex(sc => samePoint(sc, newPos));
-      if (screenIdx >= 0) {
-        const pushDest = { x: nx + dx, y: ny + dy };
-        if (pushDest.x < 0 || pushDest.x >= BOARD_W || pushDest.y < 0 || pushDest.y >= BOARD_H) continue;
-        if (walls.includes(pointKey(pushDest))) continue;
-        const pushDoorIdx = doors.findIndex(d => samePoint(d, pushDest));
-        if (pushDoorIdx >= 0 && !ns.doorsOpen[pushDoorIdx]) continue;
-        if (ns.screens.some(sc => samePoint(sc, pushDest))) continue;
-        if (exhibits.some(e => samePoint(e, pushDest))) continue;
-        ns.screens[screenIdx] = { ...pushDest };
-        actionLabel = `推屏风+${dirName}`;
-      }
-
-      const doorIdx = doors.findIndex(d => d.x === nx && d.y === ny);
-      if (doorIdx >= 0 && !ns.doorsOpen[doorIdx]) {
-        if (ns.keys <= 0) continue;
-        ns.keys -= 1;
-        ns.doorsOpen[doorIdx] = true;
-        usedKey = true;
-        actionLabel = "开门+" + actionLabel;
-      }
-
-      const vision = getVisionAtOffset(cur.step, ns.screens, ns.visionReduced, ns.camerasDisabled);
-      if (vision.has(pk)) continue;
-
-      for (let i = 0; i < keyItems.length; i++) {
-        if (!ns.keysTaken[i] && keyItems[i].x === nx && keyItems[i].y === ny) {
-          ns.keys += 1;
-          ns.keysTaken[i] = true;
-          actionLabel += "+拾钥匙";
-        }
-      }
-
-      ns.pos = newPos;
-
-      for (let pi = 0; pi < numPlates; pi++) {
-        const plate = pressurePlates[pi];
-        const playerOn = samePoint(ns.pos, plate);
-        if (playerOn && !ns.plateTriggered[pi]) {
-          ns.plateTriggered[pi] = true;
-          for (const td of plate.targetDoors) {
-            const tdi = doors.findIndex(d => samePoint(d, td));
-            if (tdi >= 0) ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
-          }
-          actionLabel += "+踩压板";
-        } else if (!playerOn && ns.plateTriggered[pi]) {
-          ns.plateTriggered[pi] = false;
-        }
-      }
-
-      for (let li = 0; li < numLights; li++) {
-        const light = lights[li];
-        if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
-          ns.lightsActive[li] = true;
-          ns.pendingVisionReduction = true;
-          ns.camerasDisabled = true;
-          ns.cameraShutdownTurns = Math.max(ns.cameraShutdownTurns || 0, 2);
-          actionLabel += "+熄灯";
-        }
-      }
-
-      ns.path.push({ ...ns.pos });
-      ns.actionLabels.push(actionLabel);
-      ns.ap -= 1;
-
-      if (ns.ap <= 0) {
-        const nextStep = (cur.step + 1) % cycleLen;
-        const nextVisionState = cloneHintState(ns);
-        advanceHintLightAndCameraEffects(nextVisionState);
-        const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
-        const curPk = pointKey(ns.pos);
-        if (!nextVision.has(curPk)) {
-          ns.step = nextStep;
-          ns.ap = 4;
-          advanceHintLightAndCameraEffects(ns);
-          ns.actionLabels[ns.actionLabels.length - 1] = actionLabel + "+等待";
-          const found = checkAndEnqueue(ns);
-          if (found) return { path: found.path, actionLabels: found.actionLabels };
-        }
-      } else {
-        const found = checkAndEnqueue(ns);
-        if (found) return { path: found.path, actionLabels: found.actionLabels };
-      }
-    }
-
-    for (let i = 0; i < numExhibits; i++) {
-      if (cur.ap <= 0) continue;
-      if (!cur.fixed[i] && isAdjacent(cur.pos, exhibits[i])) {
-        const ns = cloneHintState(cur);
-        ns.fixed[i] = true;
-        ns.ap -= 1;
-        ns.path.push({ ...ns.pos });
-        ns.actionLabels.push("修复展柜");
-
-        if (ns.ap <= 0) {
-          const nextStep = (cur.step + 1) % cycleLen;
-          const nextVisionState = cloneHintState(ns);
-          advanceHintLightAndCameraEffects(nextVisionState);
-          const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
-          const curPk = pointKey(ns.pos);
-          if (!nextVision.has(curPk)) {
-            ns.step = nextStep;
-            ns.ap = 4;
-            advanceHintLightAndCameraEffects(ns);
-            ns.actionLabels[ns.actionLabels.length - 1] = "修复展柜+等待";
-            const found = checkAndEnqueue(ns);
-            if (found) return { path: found.path, actionLabels: found.actionLabels };
-          }
-        } else {
-          const found = checkAndEnqueue(ns);
-          if (found) return { path: found.path, actionLabels: found.actionLabels };
-        }
-      }
-    }
-
-    {
-      const nextStep = (cur.step + 1) % cycleLen;
-      const nextVisionState = cloneHintState(cur);
-      advanceHintLightAndCameraEffects(nextVisionState);
-      const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
-      const curPk = pointKey(cur.pos);
-      if (!nextVision.has(curPk)) {
-        const ns = cloneHintState(cur);
-        ns.step = nextStep;
-        ns.ap = 4;
-        advanceHintLightAndCameraEffects(ns);
-        ns.path.push({ ...ns.pos });
-        ns.actionLabels.push("等待回合");
-        const found = checkAndEnqueue(ns);
-        if (found) return { path: found.path, actionLabels: found.actionLabels };
-      }
-    }
+  if (result && result.solvable && result.path && result.path.length > 1) {
+    return {
+      path: result.path,
+      actionLabels: result.actions
+    };
   }
 
   return null;
@@ -4885,7 +4483,7 @@ function diagnoseLevel(level) {
 
   result.checks.push({ name: "完整求解验证", passed: false });
   const solution = solveLevelDetailed(level);
-  if (solution) {
+  if (solution && solution.solvable) {
     result.solvable = true;
     result.solution = solution;
     result.checks[result.checks.length - 1].passed = true;
@@ -5054,7 +4652,32 @@ function getGuardVisionAtStepWithScreensSimple(guards, step, walls, screens) {
 }
 
 function solveLevelDetailed(level) {
-  const { walls, doors, keys: keyItems, exhibits, guards, player: startPos, exit } = level;
+  const result = unifiedSolveLevel(level, {
+    maxIterations: 500000,
+    mode: 'full'
+  });
+
+  if (result && result.solvable) {
+    return {
+      steps: result.steps,
+      path: result.path,
+      actions: result.actions,
+      totalActions: result.totalActions,
+      solvable: true,
+      finalAlertLevel: result.finalAlertLevel
+    };
+  }
+
+  return null;
+}
+
+// ============== 统一求解器 ==============
+// 完整模拟所有游戏机制：巡逻员行为、听觉调查、痕迹追踪、压力板、屏风、
+// 熄灯开关、门锁、钥匙、行动点和警觉变化
+// 供提示系统、关卡诊断、每日挑战生成校验共同使用
+
+function unifiedSolveLevel(level, options = {}) {
+  const { walls, doors, keys: keyItems, exhibits, guards, exit } = level;
   const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   const pressurePlates = mechanisms.pressurePlates || [];
   const screens = mechanisms.screens || [];
@@ -5065,12 +4688,134 @@ function solveLevelDetailed(level) {
   const numDoors = doors.length;
   const numPlates = pressurePlates.length;
   const numLights = lights.length;
-  const cycleLen = getGuardCycleLength(guards);
+  const numCameras = cameras.length;
+  const numGuards = guards.length;
+  const maxIterations = options.maxIterations || 150000;
+  const mode = options.mode || 'full';
 
-  function getCameraVisionForSolver(screenList, visionReduced, camerasDisabled) {
+  let startPlayer, startKeys, startKeysTaken, startDoorsOpen, startFixed,
+      startPlateTriggered, startScreens, startLightsActive, startVisionReduced,
+      startPendingVisionReduction, startCamerasDisabled, startCameraShutdownTurns,
+      startAlertLevel, startGuards, startOpenedDoors, startAp, startStep;
+
+  if (options.startState) {
+    const s = options.startState;
+    startPlayer = { ...s.player };
+    startKeys = s.keys || 0;
+    startKeysTaken = keyItems.map((k, i) => s.keysTaken ? (s.keysTaken[i] || k.taken) : k.taken);
+    startDoorsOpen = doors.map((d, i) => s.doorsOpen ? (s.doorsOpen[i] || d.open) : d.open);
+    startFixed = exhibits.map((e, i) => s.fixed ? (s.fixed[i] || e.fixed) : e.fixed);
+    startPlateTriggered = pressurePlates.map((p, i) => s.plateTriggered ? (s.plateTriggered[i] || p.triggered) : p.triggered);
+    startScreens = (s.screens || screens).map(sc => ({ ...sc }));
+    startLightsActive = lights.map((l, i) => s.lightsActive ? (s.lightsActive[i] || l.active) : l.active);
+    startVisionReduced = s.visionReduced || false;
+    startPendingVisionReduction = s.pendingVisionReduction || false;
+    startCamerasDisabled = (s.cameraShutdownTurns || 0) > 0;
+    startCameraShutdownTurns = s.cameraShutdownTurns || 0;
+    startAlertLevel = s.alertLevel || 0;
+    startAp = s.ap != null ? s.ap : 4;
+    startStep = s.step != null ? s.step : 0;
+
+    if (s.guards && s.guards.length === numGuards) {
+      startGuards = s.guards.map(g => ({
+        path: g.path ? g.path.map(p => ({ ...p })) : (g.originalPath || guards[g.id || 0].path).map(p => ({ ...p })),
+        originalPath: g.originalPath ? g.originalPath.map(p => ({ ...p })) : guards[g.id || 0].path.map(p => ({ ...p })),
+        step: g.step != null ? g.step : (guards[g.id || 0].step || 0),
+        originalStep: g.originalStep != null ? g.originalStep : (guards[g.id || 0].step || 0),
+        pos: g.pos ? { ...g.pos } : { ...(g.path ? g.path[g.step] : guards[g.id || 0].path[guards[g.id || 0].step || 0]) },
+        behavior: g.behavior || guards[g.id || 0].behavior || GUARD_BEHAVIOR.FIXED,
+        direction: g.direction != null ? g.direction : 1,
+        state: g.state || 'patrol',
+        investigateTarget: g.investigateTarget ? { ...g.investigateTarget } : null,
+        investigateTimer: g.investigateTimer || 0,
+        traceTarget: g.traceTarget ? { ...g.traceTarget } : null,
+        tracePath: g.tracePath ? g.tracePath.map(p => ({ ...p })) : [],
+        alertLevel: g.alertLevel || 0,
+        hearingRange: g.hearingRange != null ? g.hearingRange : (guards[g.id || 0].hearingRange || 4),
+        id: g.id != null ? g.id : (guards[g.id || 0].id != null ? guards[g.id || 0].id : 0)
+      }));
+    } else {
+      startGuards = initializeGuards(guards);
+    }
+    startOpenedDoors = s.openedDoors ? s.openedDoors.map(d => ({ ...d })) : [];
+  } else {
+    startPlayer = { ...level.player };
+    startKeys = 0;
+    startKeysTaken = new Array(keyItems.length).fill(false);
+    startDoorsOpen = new Array(numDoors).fill(false);
+    startFixed = new Array(numExhibits).fill(false);
+    startPlateTriggered = new Array(numPlates).fill(false);
+    startScreens = screens.map(s => ({ ...s }));
+    startLightsActive = new Array(numLights).fill(false);
+    startVisionReduced = false;
+    startPendingVisionReduction = false;
+    startCamerasDisabled = false;
+    startCameraShutdownTurns = 0;
+    startAlertLevel = 0;
+    startAp = 4;
+    startStep = 0;
+    startGuards = initializeGuards(guards);
+    startOpenedDoors = [];
+  }
+
+  const allExhibitsFixedNow = startFixed.every(f => f);
+  const atExitNow = samePoint(startPlayer, exit);
+  if (mode === 'full' && allExhibitsFixedNow && atExitNow) {
+    return {
+      solvable: true,
+      path: [{ ...startPlayer }],
+      actions: ["已完成"],
+      steps: 1,
+      totalActions: 0
+    };
+  }
+
+  const wallSet = new Set(walls);
+
+  function cloneGuard(g) {
+    return {
+      path: g.path.map(p => ({ ...p })),
+      originalPath: g.originalPath.map(p => ({ ...p })),
+      step: g.step,
+      originalStep: g.originalStep,
+      pos: { ...g.pos },
+      behavior: g.behavior,
+      direction: g.direction,
+      state: g.state,
+      investigateTarget: g.investigateTarget ? { ...g.investigateTarget } : null,
+      investigateTimer: g.investigateTimer,
+      traceTarget: g.traceTarget ? { ...g.traceTarget } : null,
+      tracePath: g.tracePath.map(p => ({ ...p })),
+      alertLevel: g.alertLevel,
+      hearingRange: g.hearingRange,
+      id: g.id
+    };
+  }
+
+  function cloneGuards(gs) {
+    return gs.map(g => cloneGuard(g));
+  }
+
+  function solverGuardKey(guard) {
+    let invTargetKey = guard.investigateTarget ? `${guard.investigateTarget.x},${guard.investigateTarget.y}` : '';
+    let tracePathKey = guard.tracePath.map(p => `${p.x},${p.y}`).join('|');
+    return `${guard.pos.x},${guard.pos.y}|${guard.step}|${guard.state}|${guard.alertLevel}|${invTargetKey}|${guard.investigateTimer}|${tracePathKey}`;
+  }
+
+  function solverStateKey(s) {
+    const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
+    const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
+    const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
+    const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
+    const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
+    const guardsKey = s.guards.map(g => solverGuardKey(g)).join('||');
+    const openedDoorsKey = s.openedDoors.map(d => `${d.x},${d.y},${d.turn}`).join('|');
+    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.ap}|${s.alertLevel}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.cameraShutdownTurns || 0}|${guardsKey}|${openedDoorsKey}`;
+  }
+
+  function getCameraVisionUnified(screenList, visionReduced, camerasDisabled, lightsActiveArr) {
     const vision = new Set();
     if (camerasDisabled) return vision;
-    const wallSet = new Set(walls);
     const screenSet = new Set(screenList.map(s => pointKey(s)));
     const camRange = visionReduced ? 3 : 6;
     cameras.forEach(cam => {
@@ -5087,16 +4832,188 @@ function solveLevelDetailed(level) {
     return vision;
   }
 
-  function stateKeyObj(s) {
-    const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
-    const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
-    const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
-    const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
-    const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}|${s.cameraShutdownTurns || 0}`;
+  function getGuardVisionUnified(guardsList, screenList, visionReduced) {
+    const vision = new Set();
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const maxRange = visionReduced ? 1 : 2;
+    guardsList.forEach((guard) => {
+      const pos = guard.pos;
+      vision.add(pointKey(pos));
+      let dx = 0, dy = 0;
+      if (guard.state === 'investigate' && guard.investigateTarget) {
+        dx = Math.sign(guard.investigateTarget.x - pos.x);
+        dy = Math.sign(guard.investigateTarget.y - pos.y);
+        if (Math.abs(guard.investigateTarget.x - pos.x) >= Math.abs(guard.investigateTarget.y - pos.y)) {
+          dy = 0;
+        } else {
+          dx = 0;
+        }
+      } else if (guard.state === 'trace' && guard.tracePath.length > 0) {
+        const target = guard.tracePath[0];
+        dx = Math.sign(target.x - pos.x);
+        dy = Math.sign(target.y - pos.y);
+      } else if (guard.behavior === GUARD_BEHAVIOR.PATROL) {
+        const nextStep = guard.step + guard.direction;
+        let dir = guard.direction;
+        if (nextStep >= guard.path.length || nextStep < 0) {
+          dir *= -1;
+        }
+        const nextIndex = guard.step + dir;
+        const current = guard.path[guard.step];
+        const next = guard.path[nextIndex];
+        dx = Math.sign(next.x - current.x);
+        dy = Math.sign(next.y - current.y);
+      } else {
+        const current = guard.path[guard.step];
+        const next = guard.path[(guard.step + 1) % guard.path.length];
+        dx = Math.sign(next.x - current.x);
+        dy = Math.sign(next.y - current.y);
+      }
+      for (let i = 1; i <= maxRange; i++) {
+        const p = { x: pos.x + dx * i, y: pos.y + dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
   }
 
-  function advanceSolverLightAndCameraEffects(s) {
+  function getFullVisionUnified(guardsList, screenList, visionReduced, camerasDisabled, lightsActiveArr) {
+    const vision = getGuardVisionUnified(guardsList, screenList, visionReduced);
+    const camVision = getCameraVisionUnified(screenList, visionReduced, camerasDisabled, lightsActiveArr);
+    camVision.forEach(k => vision.add(k));
+    return vision;
+  }
+
+  function findNearestPathStepUnified(guard, pos) {
+    let bestStep = guard.originalStep;
+    let bestDist = Infinity;
+    for (let i = 0; i < guard.path.length; i++) {
+      const p = guard.path[i];
+      const dist = Math.abs(p.x - pos.x) + Math.abs(p.y - pos.y);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestStep = i;
+      }
+    }
+    return bestStep;
+  }
+
+  function moveGuardUnified(guard, openedDoors) {
+    if (guard.state === "investigate") {
+      const target = guard.investigateTarget;
+      const current = guard.pos;
+      let dx = Math.sign(target.x - current.x);
+      let dy = Math.sign(target.y - current.y);
+      let newX = current.x;
+      let newY = current.y;
+      if (Math.abs(target.x - current.x) >= Math.abs(target.y - current.y) && dx !== 0) {
+        newX = current.x + dx;
+      } else if (dy !== 0) {
+        newY = current.y + dy;
+      } else if (dx !== 0) {
+        newX = current.x + dx;
+      }
+      if (!wallSet.has(pointKey({ x: newX, y: newY }))) {
+        guard.pos = { x: newX, y: newY };
+      }
+      guard.investigateTimer -= 1;
+      if (guard.investigateTimer <= 0 || samePoint(guard.pos, guard.investigateTarget)) {
+        guard.state = "patrol";
+        guard.investigateTarget = null;
+        guard.alertLevel = Math.max(0, guard.alertLevel - 1);
+        guard.step = findNearestPathStepUnified(guard, guard.pos);
+        guard.pos = { ...guard.path[guard.step] };
+      }
+      return;
+    }
+
+    if (guard.state === "trace") {
+      if (guard.tracePath.length > 0) {
+        const target = guard.tracePath[0];
+        const current = guard.pos;
+        const dx = Math.sign(target.x - current.x);
+        const dy = Math.sign(target.y - current.y);
+        let newX = current.x;
+        let newY = current.y;
+        if (Math.abs(target.x - current.x) >= Math.abs(target.y - current.y) && dx !== 0) {
+          newX = current.x + dx;
+        } else if (dy !== 0) {
+          newY = current.y + dy;
+        } else if (dx !== 0) {
+          newX = current.x + dx;
+        }
+        if (!wallSet.has(pointKey({ x: newX, y: newY }))) {
+          guard.pos = { x: newX, y: newY };
+        }
+        if (samePoint(guard.pos, target)) {
+          guard.tracePath.shift();
+        }
+      }
+      if (guard.tracePath.length === 0) {
+        guard.state = "patrol";
+        guard.traceTarget = null;
+        guard.step = findNearestPathStepUnified(guard, guard.pos);
+        guard.pos = { ...guard.path[guard.step] };
+      }
+      return;
+    }
+
+    if (guard.behavior === GUARD_BEHAVIOR.PATROL) {
+      let nextStep = guard.step + guard.direction;
+      if (nextStep >= guard.path.length || nextStep < 0) {
+        guard.direction *= -1;
+        nextStep = guard.step + guard.direction;
+      }
+      guard.step = nextStep;
+    } else {
+      guard.step = (guard.step + 1) % guard.path.length;
+    }
+    guard.pos = { ...guard.path[guard.step] };
+
+    if (guard.behavior === GUARD_BEHAVIOR.TRACE) {
+      const currentPos = guard.pos;
+      for (const openedDoor of openedDoors) {
+        const distance = Math.abs(currentPos.x - openedDoor.x) + Math.abs(currentPos.y - openedDoor.y);
+        if (distance <= 2) {
+          guard.state = "trace";
+          guard.traceTarget = { x: openedDoor.x, y: openedDoor.y };
+          guard.tracePath = [{ x: openedDoor.x, y: openedDoor.y }];
+          guard.alertLevel = Math.min(3, guard.alertLevel + 2);
+          break;
+        }
+      }
+    }
+  }
+
+  function emitSoundUnified(guardsList, soundLoudness, position, source) {
+    if (soundLoudness <= 0) return;
+    guardsList.forEach((guard) => {
+      if (guard.state === "investigate" || guard.state === "trace") return;
+      const distance = Math.abs(guard.pos.x - position.x) + Math.abs(guard.pos.y - position.y);
+      if (distance <= guard.hearingRange + soundLoudness) {
+        const alertIncrease = Math.max(1, Math.ceil((guard.hearingRange + soundLoudness - distance) / 2));
+        guard.alertLevel = Math.min(3, guard.alertLevel + alertIncrease);
+        if (guard.behavior === GUARD_BEHAVIOR.INVESTIGATE && guard.alertLevel >= 1) {
+          guard.state = "investigate";
+          guard.investigateTarget = { ...position };
+          guard.investigateTimer = 3;
+        }
+      }
+    });
+  }
+
+  function decayAlertLevelsUnified(guardsList) {
+    guardsList.forEach((guard) => {
+      if (guard.alertLevel > 0 && guard.state === "patrol") {
+        guard.alertLevel = Math.max(0, guard.alertLevel - 1);
+      }
+    });
+  }
+
+  function advanceLightAndCameraEffectsUnified(s) {
     s.visionReduced = s.pendingVisionReduction;
     s.pendingVisionReduction = false;
     if (s.cameraShutdownTurns > 0) {
@@ -5105,7 +5022,7 @@ function solveLevelDetailed(level) {
     }
   }
 
-  function cloneSolverState(s) {
+  function cloneSolverStateUnified(s) {
     return {
       pos: { ...s.pos },
       keys: s.keys,
@@ -5119,127 +5036,97 @@ function solveLevelDetailed(level) {
       pendingVisionReduction: s.pendingVisionReduction,
       camerasDisabled: s.camerasDisabled,
       cameraShutdownTurns: s.cameraShutdownTurns,
+      alertLevel: s.alertLevel,
+      guards: cloneGuards(s.guards),
+      openedDoors: s.openedDoors.map(d => ({ ...d })),
       step: s.step,
+      turnCount: s.turnCount,
       ap: s.ap,
       path: s.path.map(p => ({ ...p })),
       actions: [...s.actions]
     };
   }
 
-  function getVisionAtStepObj(step, screenList, visionReduced, camerasDisabled) {
-    const vision = new Set();
-    const wallSet = new Set(walls);
-    const screenSet = new Set(screenList.map(s => pointKey(s)));
-    const maxRange = visionReduced ? 1 : 2;
-    guards.forEach((guard) => {
-      const pos = guard.path[step % guard.path.length];
-      vision.add(pointKey(pos));
-      const nextPos = guard.path[(step + 1) % guard.path.length];
-      const dx = Math.sign(nextPos.x - pos.x);
-      const dy = Math.sign(nextPos.y - pos.y);
-      for (let i = 1; i <= maxRange; i++) {
-        const p = { x: pos.x + dx * i, y: pos.y + dy * i };
-        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
-        if (wallSet.has(pointKey(p))) break;
-        if (screenSet.has(pointKey(p))) break;
-        vision.add(pointKey(p));
-      }
-    });
-    const camVision = getCameraVisionForSolver(screenList, visionReduced, camerasDisabled);
-    camVision.forEach(k => vision.add(k));
-    return vision;
-  }
-
   const visited = new Set();
   const initial = {
-    pos: { ...startPos },
-    keys: 0,
-    keysTaken: new Array(keyItems.length).fill(false),
-    doorsOpen: new Array(numDoors).fill(false),
-    fixed: new Array(numExhibits).fill(false),
-    plateTriggered: new Array(numPlates).fill(false),
-    screens: screens.map(s => ({ ...s })),
-    lightsActive: new Array(numLights).fill(false),
-    visionReduced: false,
-    pendingVisionReduction: false,
-    camerasDisabled: false,
-    cameraShutdownTurns: 0,
-    step: 0,
-    ap: 4,
-    path: [{ ...startPos }],
-    actions: ["开局"]
+    pos: { ...startPlayer },
+    keys: startKeys,
+    keysTaken: [...startKeysTaken],
+    doorsOpen: [...startDoorsOpen],
+    fixed: [...startFixed],
+    plateTriggered: [...startPlateTriggered],
+    screens: [...startScreens],
+    lightsActive: [...startLightsActive],
+    visionReduced: startVisionReduced,
+    pendingVisionReduction: startPendingVisionReduction,
+    camerasDisabled: startCamerasDisabled,
+    cameraShutdownTurns: startCameraShutdownTurns,
+    alertLevel: startAlertLevel,
+    guards: cloneGuards(startGuards),
+    openedDoors: [...startOpenedDoors],
+    step: startStep,
+    turnCount: 0,
+    ap: startAp,
+    path: [{ ...startPlayer }],
+    actions: [options.startState ? "当前位置" : "开局"]
   };
 
-  const initKey = stateKeyObj(initial);
+  const initKey = solverStateKey(initial);
   visited.add(initKey);
 
   const queue = [initial];
   let iterations = 0;
-  const maxIterations = 100000;
+
+  function checkAndEnqueue(newState) {
+    const allFixed = newState.fixed.every(f => f);
+    const atExit = samePoint(newState.pos, exit);
+    if (allFixed && atExit) {
+      return newState;
+    }
+    const sk = solverStateKey(newState);
+    if (!visited.has(sk)) {
+      visited.add(sk);
+      queue.push(newState);
+    }
+    return null;
+  }
 
   while (queue.length > 0 && iterations < maxIterations) {
     iterations++;
     const cur = queue.shift();
 
-    const allFixed = cur.fixed.every(f => f);
-    const atExit = samePoint(cur.pos, exit);
-    if (allFixed && atExit) {
-      return {
-        steps: cur.path.length,
-        path: cur.path,
-        actions: cur.actions,
-        totalActions: iterations
-      };
-    }
-
     const dirs = [
-      [1, 0, "向右移动"],
-      [-1, 0, "向左移动"],
-      [0, 1, "向下移动"],
-      [0, -1, "向上移动"]
+      [1, 0, "向右"],
+      [-1, 0, "向左"],
+      [0, 1, "向下"],
+      [0, -1, "向上"]
     ];
 
-    for (const [dx, dy, actionName] of dirs) {
+    for (const [dx, dy, dirName] of dirs) {
       if (cur.ap <= 0) continue;
       const nx = cur.pos.x + dx;
       const ny = cur.pos.y + dy;
       if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
       const newPos = { x: nx, y: ny };
       const pk = pointKey(newPos);
-      if (walls.includes(pk)) continue;
+      if (wallSet.has(pk)) continue;
 
-      let ns = {
-        pos: { ...newPos },
-        keys: cur.keys,
-        keysTaken: [...cur.keysTaken],
-        doorsOpen: [...cur.doorsOpen],
-        fixed: [...cur.fixed],
-        plateTriggered: [...cur.plateTriggered],
-        screens: cur.screens.map(sc => ({ ...sc })),
-        lightsActive: [...cur.lightsActive],
-        visionReduced: cur.visionReduced,
-        pendingVisionReduction: cur.pendingVisionReduction,
-        camerasDisabled: cur.camerasDisabled,
-        cameraShutdownTurns: cur.cameraShutdownTurns,
-        step: cur.step,
-        ap: cur.ap - 1,
-        path: [...cur.path, { ...newPos }],
-        actions: [...cur.actions, actionName]
-      };
-
-      let actionLabel = actionName;
+      const ns = cloneSolverStateUnified(cur);
+      let actionLabel = `向${dirName}`;
+      let soundLoudness = 1;
 
       const screenIdx = ns.screens.findIndex(sc => samePoint(sc, newPos));
       if (screenIdx >= 0) {
         const pushDest = { x: nx + dx, y: ny + dy };
         if (pushDest.x < 0 || pushDest.x >= BOARD_W || pushDest.y < 0 || pushDest.y >= BOARD_H) continue;
-        if (walls.includes(pointKey(pushDest))) continue;
+        if (wallSet.has(pointKey(pushDest))) continue;
         const pushDoorIdx = doors.findIndex(d => samePoint(d, pushDest));
         if (pushDoorIdx >= 0 && !ns.doorsOpen[pushDoorIdx]) continue;
         if (ns.screens.some(sc => samePoint(sc, pushDest))) continue;
         if (exhibits.some(e => samePoint(e, pushDest))) continue;
         ns.screens[screenIdx] = { ...pushDest };
-        actionLabel = "推屏风+" + actionLabel;
+        actionLabel = `推屏风+${dirName}`;
+        soundLoudness = 2;
       }
 
       const doorIdx = doors.findIndex(d => d.x === nx && d.y === ny);
@@ -5247,10 +5134,12 @@ function solveLevelDetailed(level) {
         if (ns.keys <= 0) continue;
         ns.keys -= 1;
         ns.doorsOpen[doorIdx] = true;
+        ns.openedDoors.push({ x: nx, y: ny, turn: ns.turnCount });
         actionLabel = "开门+" + actionLabel;
+        soundLoudness = 3;
       }
 
-      const vision = getVisionAtStepObj(cur.step, ns.screens, ns.visionReduced, ns.camerasDisabled);
+      const vision = getFullVisionUnified(cur.guards, ns.screens, cur.visionReduced, cur.camerasDisabled, cur.lightsActive);
       if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
@@ -5260,6 +5149,8 @@ function solveLevelDetailed(level) {
           actionLabel += "+拾钥匙";
         }
       }
+
+      ns.pos = newPos;
 
       for (let pi = 0; pi < numPlates; pi++) {
         const plate = pressurePlates[pi];
@@ -5287,39 +5178,75 @@ function solveLevelDetailed(level) {
         }
       }
 
-      ns.actions[ns.actions.length - 1] = actionLabel;
+      emitSoundUnified(ns.guards, soundLoudness, ns.pos, dirName);
+
+      const camVision = getCameraVisionUnified(ns.screens, cur.visionReduced, cur.camerasDisabled, ns.lightsActive);
+      if (camVision.has(pk)) {
+        ns.alertLevel = Math.min(3, ns.alertLevel + 1);
+        if (ns.alertLevel >= 3) continue;
+      }
+
+      ns.path.push({ ...ns.pos });
+      ns.actionLabels = ns.actionLabels || [...ns.actions];
+      ns.actionLabels.push(actionLabel);
+      ns.actions = ns.actionLabels;
+      ns.ap -= 1;
 
       if (ns.ap <= 0) {
-        const nextStep = (cur.step + 1) % cycleLen;
-        const nextVisionState = cloneSolverState(ns);
-        advanceSolverLightAndCameraEffects(nextVisionState);
-        const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
-        if (!nextVision.has(pk)) {
-          ns.step = nextStep;
-          ns.ap = 4;
-          advanceSolverLightAndCameraEffects(ns);
-          ns.actions[ns.actions.length - 1] = actionLabel + "+等待";
-          const sk = stateKeyObj(ns);
-          if (!visited.has(sk)) {
-            visited.add(sk);
-            const allF = ns.fixed.every(f => f);
-            const atE = samePoint(ns.pos, exit);
-            if (allF && atE) {
-              return {
-                steps: ns.path.length,
-                path: ns.path,
-                actions: ns.actions,
-                totalActions: iterations
-              };
-            }
-            queue.push(ns);
+        const nextState = cloneSolverStateUnified(ns);
+        emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+        advanceLightAndCameraEffectsUnified(nextState);
+        decayAlertLevelsUnified(nextState.guards);
+        
+        let maxGuardAlert = 0;
+        nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
+        nextState.alertLevel = maxGuardAlert;
+        
+        nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
+
+        const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
+        const curPk = pointKey(ns.pos);
+        if (!nextVision.has(curPk)) {
+          const nextCamVision = getCameraVisionUnified(nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
+          if (nextCamVision.has(curPk)) {
+            nextState.alertLevel = Math.min(3, nextState.alertLevel + 1);
+            if (nextState.alertLevel >= 3) continue;
+            
+            let maxGuardAlert2 = 0;
+            nextState.guards.forEach(g => { maxGuardAlert2 = Math.max(maxGuardAlert2, g.alertLevel); });
+            nextState.alertLevel = maxGuardAlert2;
+          }
+
+          nextState.step = (cur.step + 1) % (cur.guards.length > 0 ? Math.max(...cur.guards.map(g => g.path.length)) : 1);
+          nextState.turnCount = cur.turnCount + 1;
+          nextState.ap = 4;
+          nextState.actions[nextState.actions.length - 1] = actionLabel + "+等待";
+          const found = checkAndEnqueue(nextState);
+          if (found) {
+            return {
+              solvable: true,
+              path: found.path,
+              actions: found.actions,
+              steps: found.path.length,
+              totalActions: iterations,
+              finalAlertLevel: found.alertLevel
+            };
           }
         }
       } else {
-        const sk = stateKeyObj(ns);
-        if (!visited.has(sk)) {
-          visited.add(sk);
-          queue.push(ns);
+        let maxGuardAlert = 0;
+        ns.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
+        ns.alertLevel = maxGuardAlert;
+        const found = checkAndEnqueue(ns);
+        if (found) {
+          return {
+            solvable: true,
+            path: found.path,
+            actions: found.actions,
+            steps: found.path.length,
+            totalActions: iterations,
+            finalAlertLevel: found.alertLevel
+          };
         }
       }
     }
@@ -5327,99 +5254,140 @@ function solveLevelDetailed(level) {
     for (let i = 0; i < numExhibits; i++) {
       if (cur.ap <= 0) continue;
       if (!cur.fixed[i] && isAdjacent(cur.pos, exhibits[i])) {
-        const ns = {
-          pos: { ...cur.pos },
-          keys: cur.keys,
-          keysTaken: [...cur.keysTaken],
-          doorsOpen: [...cur.doorsOpen],
-          fixed: [...cur.fixed],
-          plateTriggered: [...cur.plateTriggered],
-          screens: cur.screens.map(sc => ({ ...sc })),
-          lightsActive: [...cur.lightsActive],
-          visionReduced: cur.visionReduced,
-          pendingVisionReduction: cur.pendingVisionReduction,
-          camerasDisabled: cur.camerasDisabled,
-          cameraShutdownTurns: cur.cameraShutdownTurns,
-          step: cur.step,
-          ap: cur.ap - 1,
-          path: [...cur.path, { ...cur.pos }],
-          actions: [...cur.actions, "修复展柜"]
-        };
+        const ns = cloneSolverStateUnified(cur);
         ns.fixed[i] = true;
+        ns.ap -= 1;
+
+        emitSoundUnified(ns.guards, 2, ns.pos, "修复");
+
+        ns.path.push({ ...ns.pos });
+        ns.actionLabels = ns.actionLabels || [...ns.actions];
+        ns.actionLabels.push("修复展柜");
+        ns.actions = ns.actionLabels;
+
+        const vision = getFullVisionUnified(cur.guards, ns.screens, cur.visionReduced, cur.camerasDisabled, cur.lightsActive);
+        const curPk = pointKey(ns.pos);
+        if (vision.has(curPk)) continue;
+
+        const camVision = getCameraVisionUnified(ns.screens, cur.visionReduced, cur.camerasDisabled, ns.lightsActive);
+        if (camVision.has(curPk)) {
+          ns.alertLevel = Math.min(3, ns.alertLevel + 1);
+          if (ns.alertLevel >= 3) continue;
+        }
 
         if (ns.ap <= 0) {
-          const nextStep = (cur.step + 1) % cycleLen;
-          const nextVisionState = cloneSolverState(ns);
-          advanceSolverLightAndCameraEffects(nextVisionState);
-          const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
-          const pk = pointKey(ns.pos);
-          if (!nextVision.has(pk)) {
-            ns.step = nextStep;
-            ns.ap = 4;
-            advanceSolverLightAndCameraEffects(ns);
-            ns.actions[ns.actions.length - 1] = "修复展柜+等待";
-            const sk = stateKeyObj(ns);
-            if (!visited.has(sk)) {
-              visited.add(sk);
-              const allF = ns.fixed.every(f => f);
-              const atE = samePoint(ns.pos, exit);
-              if (allF && atE) {
-                return {
-                  steps: ns.path.length,
-                  path: ns.path,
-                  actions: ns.actions,
-                  totalActions: iterations
-                };
-              }
-              queue.push(ns);
+          const nextState = cloneSolverStateUnified(ns);
+          emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+          advanceLightAndCameraEffectsUnified(nextState);
+          decayAlertLevelsUnified(nextState.guards);
+          
+          let maxGuardAlert = 0;
+          nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
+          nextState.alertLevel = maxGuardAlert;
+          
+          nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
+
+          const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
+          if (!nextVision.has(curPk)) {
+            const nextCamVision = getCameraVisionUnified(nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
+            if (nextCamVision.has(curPk)) {
+              nextState.alertLevel = Math.min(3, nextState.alertLevel + 1);
+              if (nextState.alertLevel >= 3) continue;
+              
+              let maxGuardAlert2 = 0;
+              nextState.guards.forEach(g => { maxGuardAlert2 = Math.max(maxGuardAlert2, g.alertLevel); });
+              nextState.alertLevel = maxGuardAlert2;
+            }
+
+            nextState.step = (cur.step + 1) % (cur.guards.length > 0 ? Math.max(...cur.guards.map(g => g.path.length)) : 1);
+            nextState.turnCount = cur.turnCount + 1;
+            nextState.ap = 4;
+            nextState.actions[nextState.actions.length - 1] = "修复展柜+等待";
+            const found = checkAndEnqueue(nextState);
+            if (found) {
+              return {
+                solvable: true,
+                path: found.path,
+                actions: found.actions,
+                steps: found.path.length,
+                totalActions: iterations,
+                finalAlertLevel: found.alertLevel
+              };
             }
           }
         } else {
-          const sk = stateKeyObj(ns);
-          if (!visited.has(sk)) {
-            visited.add(sk);
-            queue.push(ns);
+          let maxGuardAlert = 0;
+          ns.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
+          ns.alertLevel = maxGuardAlert;
+          const found = checkAndEnqueue(ns);
+          if (found) {
+            return {
+              solvable: true,
+              path: found.path,
+              actions: found.actions,
+              steps: found.path.length,
+              totalActions: iterations,
+              finalAlertLevel: found.alertLevel
+            };
           }
         }
       }
     }
 
     {
-      const nextStep = (cur.step + 1) % cycleLen;
-      const nextVisionState = cloneSolverState(cur);
-      advanceSolverLightAndCameraEffects(nextVisionState);
-      const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
-      const pk = pointKey(cur.pos);
-      if (!nextVision.has(pk)) {
-        const ns = {
-          pos: { ...cur.pos },
-          keys: cur.keys,
-          keysTaken: [...cur.keysTaken],
-          doorsOpen: [...cur.doorsOpen],
-          fixed: [...cur.fixed],
-          plateTriggered: [...cur.plateTriggered],
-          screens: cur.screens.map(sc => ({ ...sc })),
-          lightsActive: [...cur.lightsActive],
-          visionReduced: cur.visionReduced,
-          pendingVisionReduction: cur.pendingVisionReduction,
-          camerasDisabled: cur.camerasDisabled,
-          cameraShutdownTurns: cur.cameraShutdownTurns,
-          step: nextStep,
-          ap: 4,
-          path: [...cur.path, { ...cur.pos }],
-          actions: [...cur.actions, "等待回合"]
-        };
-        advanceSolverLightAndCameraEffects(ns);
-        const sk = stateKeyObj(ns);
-        if (!visited.has(sk)) {
-          visited.add(sk);
-          queue.push(ns);
+      const nextState = cloneSolverStateUnified(cur);
+      emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+      advanceLightAndCameraEffectsUnified(nextState);
+      decayAlertLevelsUnified(nextState.guards);
+      
+      let maxGuardAlert = 0;
+      nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
+      nextState.alertLevel = maxGuardAlert;
+      
+      nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
+
+      const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
+      const curPk = pointKey(cur.pos);
+      if (!nextVision.has(curPk)) {
+        const nextCamVision = getCameraVisionUnified(nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
+        if (nextCamVision.has(curPk)) {
+          nextState.alertLevel = Math.min(3, nextState.alertLevel + 1);
+          if (nextState.alertLevel >= 3) continue;
+          
+          let maxGuardAlert2 = 0;
+          nextState.guards.forEach(g => { maxGuardAlert2 = Math.max(maxGuardAlert2, g.alertLevel); });
+          nextState.alertLevel = maxGuardAlert2;
+        }
+
+        nextState.step = (cur.step + 1) % (cur.guards.length > 0 ? Math.max(...cur.guards.map(g => g.path.length)) : 1);
+        nextState.turnCount = cur.turnCount + 1;
+        nextState.ap = 4;
+        nextState.path.push({ ...nextState.pos });
+        nextState.actionLabels = nextState.actionLabels || [...nextState.actions];
+        nextState.actionLabels.push("等待回合");
+        nextState.actions = nextState.actionLabels;
+        const found = checkAndEnqueue(nextState);
+        if (found) {
+          return {
+            solvable: true,
+            path: found.path,
+            actions: found.actions,
+            steps: found.path.length,
+            totalActions: iterations,
+            finalAlertLevel: found.alertLevel
+          };
         }
       }
     }
   }
 
-  return null;
+  return {
+    solvable: false,
+    path: null,
+    actions: null,
+    steps: 0,
+    totalActions: iterations
+  };
 }
 
 init();
