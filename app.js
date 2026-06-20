@@ -236,6 +236,162 @@ const levelDescriptions = [
   { brief: "安保摄像头守护展柜，利用熄灯开关和屏风绕过监视", optimalActions: 28 }
 ];
 
+const AUTOSAVE_KEY = "museum_autosave_v1";
+
+function autoSave() {
+  if (!state || state.done) {
+    autoSaveClear();
+    return;
+  }
+  if (state.levelIndex === -2) return;
+  if (!state.history || state.history.length <= 1) return;
+  try {
+    const data = {
+      version: 1,
+      timestamp: Date.now(),
+      levelIndex: state.levelIndex,
+      customLevelSource: customLevelSource,
+      state: snapshotState("autosave"),
+      history: state.history.map(h => JSON.parse(JSON.stringify(h))),
+      tutorialState: {
+        active: tutorialState.active,
+        currentStep: tutorialState.currentStep,
+        hasWaited: tutorialState.hasWaited,
+        wrongAttempts: tutorialState.wrongAttempts
+      },
+      hintState: {
+        active: hintState.active,
+        path: hintState.path.map(p => ({ ...p })),
+        actionLabels: [...hintState.actionLabels]
+      },
+      gameplayMetrics: { ...gameplayMetrics }
+    };
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function autoSaveClear() {
+  try {
+    localStorage.removeItem(AUTOSAVE_KEY);
+  } catch (e) {}
+}
+
+function autoSaveLoad() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.version !== 1 || !data.state) {
+      autoSaveClear();
+      return null;
+    }
+    return data;
+  } catch (e) {
+    autoSaveClear();
+    return null;
+  }
+}
+
+function getAutosaveDescription(data) {
+  if (!data) return "";
+  const li = data.levelIndex;
+  const name = data.state.level ? data.state.level.name : "";
+  if (li === -3) return "每日挑战 — " + name;
+  if (li === -1) return "自定义试玩 — " + name;
+  if (li >= 0) return "关卡" + name;
+  return name;
+}
+
+function getAutosaveTimeDesc(data) {
+  if (!data || !data.timestamp) return "";
+  const diff = Date.now() - data.timestamp;
+  if (diff < 60000) return "刚刚";
+  if (diff < 3600000) return Math.floor(diff / 60000) + "分钟前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + "小时前";
+  return Math.floor(diff / 86400000) + "天前";
+}
+
+function restoreFromAutosave(data) {
+  if (!data || !data.state) return false;
+  try {
+    const snap = data.state;
+    if (data.levelIndex === -1 || data.levelIndex === -3) {
+      if (!data.customLevelSource) return false;
+      customLevelSource = JSON.parse(JSON.stringify(data.customLevelSource));
+      state = freshStateFromLevel(customLevelSource);
+      if (data.levelIndex === -3) state.levelIndex = -3;
+    } else if (data.levelIndex >= 0) {
+      state = freshState(data.levelIndex);
+    } else {
+      return false;
+    }
+    restoreStateFromSnapshot(snap);
+    state.history = data.history ? data.history.map(h => JSON.parse(JSON.stringify(h))) : [];
+    if (data.gameplayMetrics) {
+      Object.assign(gameplayMetrics, data.gameplayMetrics);
+    }
+    if (data.hintState) {
+      hintState.active = data.hintState.active;
+      hintState.path = data.hintState.path.map(p => ({ ...p }));
+      hintState.actionLabels = [...data.hintState.actionLabels];
+    }
+    resultEl.classList.add("hidden");
+    resultEl.classList.remove("daily-result-style");
+    tutorialState.active = false;
+    tutorialHintEl.classList.add("hidden");
+    tutorialBtn.classList.remove("active");
+    if (data.levelIndex === -1) {
+      toggleBackToEditorBtn(true);
+    } else {
+      toggleBackToEditorBtn(false);
+    }
+    render();
+    if (data.levelIndex === -3) {
+      renderDailyInfo();
+      dailyBtn.classList.add("active");
+    }
+    autoSave();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function showAutosaveRestoreDialog(data) {
+  const overlay = document.getElementById("autosaveOverlay");
+  if (!overlay) return;
+  const desc = getAutosaveDescription(data);
+  const time = getAutosaveTimeDesc(data);
+  const actions = data.state.level && data.state.level.exhibits
+    ? data.state.level.exhibits.filter(e => e.fixed).length + "/" + data.state.level.exhibits.length
+    : "-";
+  const alertNames = ["平静", "警觉", "怀疑", "警戒"];
+  const alertName = alertNames[data.state.alertLevel] || "平静";
+  document.getElementById("autosaveInfo").innerHTML =
+    `<div class="autosave-detail"><span class="autosave-label">进度</span><span class="autosave-value">${desc}</span></div>` +
+    `<div class="autosave-detail"><span class="autosave-label">修复</span><span class="autosave-value">${actions}</span></div>` +
+    `<div class="autosave-detail"><span class="autosave-label">警觉</span><span class="autosave-value">${alertName}</span></div>` +
+    `<div class="autosave-detail"><span class="autosave-label">保存时间</span><span class="autosave-value">${time}</span></div>`;
+  overlay.classList.remove("hidden");
+}
+
+function dismissAutosaveDialog() {
+  const overlay = document.getElementById("autosaveOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  autoSaveClear();
+}
+
+function acceptAutosaveRestore() {
+  const overlay = document.getElementById("autosaveOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  const data = autoSaveLoad();
+  if (data) {
+    if (!restoreFromAutosave(data)) {
+      autoSaveClear();
+    }
+  }
+}
+
 const CHAPTER_STAR_KEY = "museum_chapter_stars";
 
 function loadChapterStars() {
@@ -759,6 +915,7 @@ function undo() {
 
   syncCurrentHistorySnapshot();
 
+  autoSave();
   render();
 }
 
@@ -845,6 +1002,7 @@ function freshStateFromLevel(levelData) {
 
 function loadCustomLevel(levelData) {
   customLevelSource = JSON.parse(JSON.stringify(levelData));
+  autoSaveClear();
   state = freshStateFromLevel(levelData);
   resultEl.classList.add("hidden");
   resultEl.classList.remove("daily-result-style");
@@ -855,6 +1013,7 @@ function loadCustomLevel(levelData) {
     button.classList.remove("active");
   });
   toggleBackToEditorBtn(true);
+  recordHistory("开局");
   render();
 }
 
@@ -870,6 +1029,7 @@ function toggleBackToEditorBtn(show) {
 }
 
 function startTutorial() {
+  autoSaveClear();
   if (tutorialState.errorTimeout) {
     clearTimeout(tutorialState.errorTimeout);
     tutorialState.errorTimeout = null;
@@ -1239,9 +1399,24 @@ function init() {
       loadDailyChallenge();
     });
   }
+  const autosaveAcceptBtn = document.getElementById("autosaveAcceptBtn");
+  const autosaveDismissBtn = document.getElementById("autosaveDismissBtn");
+  if (autosaveAcceptBtn) {
+    autosaveAcceptBtn.addEventListener("click", acceptAutosaveRestore);
+  }
+  if (autosaveDismissBtn) {
+    autosaveDismissBtn.addEventListener("click", dismissAutosaveDialog);
+  }
   recordHistory("开局");
   render();
   renderDailyInfo();
+  window.addEventListener("beforeunload", () => {
+    autoSave();
+  });
+  const saved = autoSaveLoad();
+  if (saved && saved.state && !saved.state.done && saved.history && saved.history.length > 1) {
+    showAutosaveRestoreDialog(saved);
+  }
 }
 
 function emitSound(source, loudness, position) {
@@ -1543,6 +1718,7 @@ function renderLevelButtons() {
 
 function loadLevel(index, preserveMetrics) {
   customLevelSource = null;
+  autoSaveClear();
   state = freshState(index);
   resultEl.classList.add("hidden");
   resultEl.classList.remove("daily-result-style");
@@ -1721,9 +1897,11 @@ function move(dx, dy) {
   if (state.ap === 0) {
     recordHistory(action);
     endTurn();
+    autoSave();
     return;
   }
   recordHistory(action);
+  autoSave();
   render();
 }
 
@@ -1772,9 +1950,11 @@ function repair() {
   if (state.ap === 0) {
     recordHistory("修复展柜");
     endTurn();
+    autoSave();
     return;
   }
   recordHistory("修复展柜");
+  autoSave();
   render();
 }
 
@@ -1838,6 +2018,7 @@ function endTurn() {
     return;
   }
   recordHistory("等待回合");
+  autoSave();
   render();
 }
 
@@ -1880,6 +2061,7 @@ function allFixed() {
 
 function win() {
   state.done = true;
+  autoSaveClear();
 
   updateStatsOnWin(state.levelIndex);
 
@@ -2066,6 +2248,7 @@ function win() {
 
 function fail(reason) {
   state.done = true;
+  autoSaveClear();
   gameplayMetrics.hasRetried = true;
 
   updateStatsOnFail(state.levelIndex, reason);
@@ -3462,6 +3645,7 @@ function loadDailyChallenge() {
   const dateKey = getDateKey();
   const level = generateDailyLevel(dateKey);
   customLevelSource = JSON.parse(JSON.stringify(level));
+  autoSaveClear();
   state = freshStateFromLevel(level);
   state.levelIndex = -3;
   resultEl.classList.add("hidden");

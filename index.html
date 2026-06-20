@@ -7,6 +7,17 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div id="autosaveOverlay" class="autosave-overlay hidden">
+    <div class="autosave-dialog">
+      <h2>发现上次未完成的进度</h2>
+      <div id="autosaveInfo" class="autosave-info"></div>
+      <div class="autosave-actions">
+        <button id="autosaveAcceptBtn" type="button" class="autosave-accept-btn">继续上次进度</button>
+        <button id="autosaveDismissBtn" type="button" class="autosave-dismiss-btn">重新开始</button>
+      </div>
+    </div>
+  </div>
+
   <main class="shell">
     <header class="header">
       <div>
