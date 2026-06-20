@@ -611,6 +611,7 @@ function snapshotState(action) {
     done: state.done,
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
+    cameraShutdownTurns: state.cameraShutdownTurns || 0,
     alertLevel: state.alertLevel,
     soundSources: state.soundSources.map(s => ({ ...s, position: { ...s.position } })),
     level: {
@@ -672,6 +673,7 @@ function freshState(index) {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -725,6 +727,7 @@ function freshStateFromLevel(levelData) {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -779,6 +782,7 @@ function startTutorial() {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -938,6 +942,7 @@ function restartTutorialStep(reason = "manual") {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -1670,8 +1675,7 @@ function endTurn() {
 
   state.ap = 4;
   gameplayMetrics.currentActions += 1;
-  state.visionReduced = state.pendingVisionReduction;
-  state.pendingVisionReduction = false;
+  advanceLightAndCameraEffects();
 
   decayAlertLevels();
 
@@ -1716,6 +1720,25 @@ function endTurn() {
   }
   recordHistory("等待回合");
   render();
+}
+
+function restoreCameras() {
+  const cameras = getMechanisms().cameras || [];
+  cameras.forEach(cam => {
+    cam.disabled = false;
+  });
+}
+
+function advanceLightAndCameraEffects() {
+  state.visionReduced = state.pendingVisionReduction;
+  state.pendingVisionReduction = false;
+  if (state.cameraShutdownTurns > 0) {
+    state.cameraShutdownTurns -= 1;
+    if (state.cameraShutdownTurns === 0) {
+      restoreCameras();
+      addLog("安保摄像头重新上线。");
+    }
+  }
 }
 
 function pickKey() {
@@ -2179,6 +2202,7 @@ function activateLights() {
       }
     });
     if (cameras.length > 0) {
+      state.cameraShutdownTurns = Math.max(state.cameraShutdownTurns || 0, 2);
       addLog("按下了熄灯开关，巡逻员视野缩短，安保摄像头也被暂时关闭。");
     } else {
       addLog("按下了熄灯开关，巡逻员下一回合视野会缩短。");
@@ -3523,6 +3547,7 @@ function cloneHintState(s) {
     visionReduced: s.visionReduced,
     pendingVisionReduction: s.pendingVisionReduction,
     camerasDisabled: s.camerasDisabled,
+    cameraShutdownTurns: s.cameraShutdownTurns,
     step: s.step,
     ap: s.ap,
     path: [...s.path],
@@ -3536,7 +3561,16 @@ function hintStateKey(s, cycleLen, numExhibits, numPlates, numLights, numCameras
   const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
   const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
   const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}`;
+  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}|${s.cameraShutdownTurns || 0}`;
+}
+
+function advanceHintLightAndCameraEffects(s) {
+  s.visionReduced = s.pendingVisionReduction;
+  s.pendingVisionReduction = false;
+  if (s.cameraShutdownTurns > 0) {
+    s.cameraShutdownTurns -= 1;
+    s.camerasDisabled = s.cameraShutdownTurns > 0;
+  }
 }
 
 function searchHintPath() {
@@ -3607,7 +3641,6 @@ function searchHintPath() {
   const currentPlateTriggered = pressurePlates.map(p => p.triggered);
   const currentScreens = screens.map(s => ({ ...s }));
   const currentLightsActive = lights.map(l => l.active);
-  const allLightsActive = currentLightsActive.length > 0 && currentLightsActive.every(a => a);
 
   const allExhibitsFixedNow = currentFixed.every(f => f);
   const atExitNow = samePoint(state.player, exit);
@@ -3627,7 +3660,8 @@ function searchHintPath() {
     lightsActive: [...currentLightsActive],
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
-    camerasDisabled: allLightsActive,
+    camerasDisabled: (state.cameraShutdownTurns || 0) > 0,
+    cameraShutdownTurns: state.cameraShutdownTurns || 0,
     step: 0,
     ap: state.ap,
     path: [{ ...state.player }],
@@ -3735,6 +3769,7 @@ function searchHintPath() {
           ns.lightsActive[li] = true;
           ns.pendingVisionReduction = true;
           ns.camerasDisabled = true;
+          ns.cameraShutdownTurns = Math.max(ns.cameraShutdownTurns || 0, 2);
           actionLabel += "+熄灯";
         }
       }
@@ -3745,13 +3780,14 @@ function searchHintPath() {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
+        const nextVisionState = cloneHintState(ns);
+        advanceHintLightAndCameraEffects(nextVisionState);
+        const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
         const curPk = pointKey(ns.pos);
         if (!nextVision.has(curPk)) {
           ns.step = nextStep;
           ns.ap = 4;
-          ns.visionReduced = ns.pendingVisionReduction;
-          ns.pendingVisionReduction = false;
+          advanceHintLightAndCameraEffects(ns);
           ns.actionLabels[ns.actionLabels.length - 1] = actionLabel + "+等待";
           const found = checkAndEnqueue(ns);
           if (found) return { path: found.path, actionLabels: found.actionLabels };
@@ -3773,13 +3809,14 @@ function searchHintPath() {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
+          const nextVisionState = cloneHintState(ns);
+          advanceHintLightAndCameraEffects(nextVisionState);
+          const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
           const curPk = pointKey(ns.pos);
           if (!nextVision.has(curPk)) {
             ns.step = nextStep;
             ns.ap = 4;
-            ns.visionReduced = ns.pendingVisionReduction;
-            ns.pendingVisionReduction = false;
+            advanceHintLightAndCameraEffects(ns);
             ns.actionLabels[ns.actionLabels.length - 1] = "修复展柜+等待";
             const found = checkAndEnqueue(ns);
             if (found) return { path: found.path, actionLabels: found.actionLabels };
@@ -3793,14 +3830,15 @@ function searchHintPath() {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getVisionAtOffset(nextStep, cur.screens, cur.pendingVisionReduction, cur.camerasDisabled);
+      const nextVisionState = cloneHintState(cur);
+      advanceHintLightAndCameraEffects(nextVisionState);
+      const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
       const curPk = pointKey(cur.pos);
       if (!nextVision.has(curPk)) {
         const ns = cloneHintState(cur);
         ns.step = nextStep;
         ns.ap = 4;
-        ns.visionReduced = ns.pendingVisionReduction;
-        ns.pendingVisionReduction = false;
+        advanceHintLightAndCameraEffects(ns);
         ns.path.push({ ...ns.pos });
         ns.actionLabels.push("等待回合");
         const found = checkAndEnqueue(ns);
@@ -4520,7 +4558,37 @@ function solveLevelDetailed(level) {
     const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
     const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
     const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}`;
+    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}|${s.cameraShutdownTurns || 0}`;
+  }
+
+  function advanceSolverLightAndCameraEffects(s) {
+    s.visionReduced = s.pendingVisionReduction;
+    s.pendingVisionReduction = false;
+    if (s.cameraShutdownTurns > 0) {
+      s.cameraShutdownTurns -= 1;
+      s.camerasDisabled = s.cameraShutdownTurns > 0;
+    }
+  }
+
+  function cloneSolverState(s) {
+    return {
+      pos: { ...s.pos },
+      keys: s.keys,
+      keysTaken: [...s.keysTaken],
+      doorsOpen: [...s.doorsOpen],
+      fixed: [...s.fixed],
+      plateTriggered: [...s.plateTriggered],
+      screens: s.screens.map(sc => ({ ...sc })),
+      lightsActive: [...s.lightsActive],
+      visionReduced: s.visionReduced,
+      pendingVisionReduction: s.pendingVisionReduction,
+      camerasDisabled: s.camerasDisabled,
+      cameraShutdownTurns: s.cameraShutdownTurns,
+      step: s.step,
+      ap: s.ap,
+      path: s.path.map(p => ({ ...p })),
+      actions: [...s.actions]
+    };
   }
 
   function getVisionAtStepObj(step, screenList, visionReduced, camerasDisabled) {
@@ -4560,6 +4628,7 @@ function solveLevelDetailed(level) {
     visionReduced: false,
     pendingVisionReduction: false,
     camerasDisabled: false,
+    cameraShutdownTurns: 0,
     step: 0,
     ap: 4,
     path: [{ ...startPos }],
@@ -4616,6 +4685,7 @@ function solveLevelDetailed(level) {
         visionReduced: cur.visionReduced,
         pendingVisionReduction: cur.pendingVisionReduction,
         camerasDisabled: cur.camerasDisabled,
+        cameraShutdownTurns: cur.cameraShutdownTurns,
         step: cur.step,
         ap: cur.ap - 1,
         path: [...cur.path, { ...newPos }],
@@ -4677,6 +4747,7 @@ function solveLevelDetailed(level) {
           ns.lightsActive[li] = true;
           ns.pendingVisionReduction = true;
           ns.camerasDisabled = true;
+          ns.cameraShutdownTurns = Math.max(ns.cameraShutdownTurns || 0, 2);
           actionLabel += "+熄灯";
         }
       }
@@ -4685,12 +4756,13 @@ function solveLevelDetailed(level) {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
+        const nextVisionState = cloneSolverState(ns);
+        advanceSolverLightAndCameraEffects(nextVisionState);
+        const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
         if (!nextVision.has(pk)) {
           ns.step = nextStep;
           ns.ap = 4;
-          ns.visionReduced = ns.pendingVisionReduction;
-          ns.pendingVisionReduction = false;
+          advanceSolverLightAndCameraEffects(ns);
           ns.actions[ns.actions.length - 1] = actionLabel + "+等待";
           const sk = stateKeyObj(ns);
           if (!visited.has(sk)) {
@@ -4732,6 +4804,7 @@ function solveLevelDetailed(level) {
           visionReduced: cur.visionReduced,
           pendingVisionReduction: cur.pendingVisionReduction,
           camerasDisabled: cur.camerasDisabled,
+          cameraShutdownTurns: cur.cameraShutdownTurns,
           step: cur.step,
           ap: cur.ap - 1,
           path: [...cur.path, { ...cur.pos }],
@@ -4741,13 +4814,14 @@ function solveLevelDetailed(level) {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
+          const nextVisionState = cloneSolverState(ns);
+          advanceSolverLightAndCameraEffects(nextVisionState);
+          const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
           const pk = pointKey(ns.pos);
           if (!nextVision.has(pk)) {
             ns.step = nextStep;
             ns.ap = 4;
-            ns.visionReduced = ns.pendingVisionReduction;
-            ns.pendingVisionReduction = false;
+            advanceSolverLightAndCameraEffects(ns);
             ns.actions[ns.actions.length - 1] = "修复展柜+等待";
             const sk = stateKeyObj(ns);
             if (!visited.has(sk)) {
@@ -4777,7 +4851,9 @@ function solveLevelDetailed(level) {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getVisionAtStepObj(nextStep, cur.screens, cur.pendingVisionReduction, cur.camerasDisabled);
+      const nextVisionState = cloneSolverState(cur);
+      advanceSolverLightAndCameraEffects(nextVisionState);
+      const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
       const pk = pointKey(cur.pos);
       if (!nextVision.has(pk)) {
         const ns = {
@@ -4789,14 +4865,16 @@ function solveLevelDetailed(level) {
           plateTriggered: [...cur.plateTriggered],
           screens: cur.screens.map(sc => ({ ...sc })),
           lightsActive: [...cur.lightsActive],
-          visionReduced: cur.pendingVisionReduction,
-          pendingVisionReduction: false,
+          visionReduced: cur.visionReduced,
+          pendingVisionReduction: cur.pendingVisionReduction,
           camerasDisabled: cur.camerasDisabled,
+          cameraShutdownTurns: cur.cameraShutdownTurns,
           step: nextStep,
           ap: 4,
           path: [...cur.path, { ...cur.pos }],
           actions: [...cur.actions, "等待回合"]
         };
+        advanceSolverLightAndCameraEffects(ns);
         const sk = stateKeyObj(ns);
         if (!visited.has(sk)) {
           visited.add(sk);
