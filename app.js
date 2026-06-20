@@ -62,6 +62,7 @@ const achievementResetBtn = document.getElementById("achievementResetBtn");
 const achievementLevelStatsEl = document.getElementById("achievementLevelStats");
 const achievementOverallEl = document.getElementById("achievementOverall");
 const achievementListEl = document.getElementById("achievementList");
+const achievementChallengePacksEl = document.getElementById("achievementChallengePacks");
 const tutorialHintEl = document.getElementById("tutorialHint");
 const tutorialStepEl = document.getElementById("tutorialStep");
 const tutorialTitleEl = document.getElementById("tutorialTitle");
@@ -2290,6 +2291,8 @@ function fail(reason) {
   gameplayMetrics.hasRetried = true;
 
   if (challengePackState && challengePackState.playing) {
+    updateChallengePackStatsOnFail(reason);
+
     resultEl.innerHTML = `
       <h2>行动失败</h2>
       <p>${reason}</p>
@@ -4013,22 +4016,22 @@ function updateStatsOnWin(levelIndex) {
 }
 
 function updateStatsOnFail(levelIndex, reason) {
+  if (levelIndex < 0 || levelIndex >= levels.length) return;
+
   achievementState.overall.totalFailures += 1;
   const reasonKey = classifyFailureReason(reason);
   achievementState.overall.failureReasons[reasonKey] = (achievementState.overall.failureReasons[reasonKey] || 0) + 1;
 
-  if (levelIndex >= 0 && levelIndex < levels.length) {
-    const key = String(levelIndex);
-    if (!achievementState.levels[key]) {
-      achievementState.levels[key] = {
-        bestTurns: null,
-        bestActions: null,
-        totalKeysUsed: 0,
-        wins: 0,
-        noWait: false,
-        completedObjectives: []
-      };
-    }
+  const key = String(levelIndex);
+  if (!achievementState.levels[key]) {
+    achievementState.levels[key] = {
+      bestTurns: null,
+      bestActions: null,
+      totalKeysUsed: 0,
+      wins: 0,
+      noWait: false,
+      completedObjectives: []
+    };
   }
 
   saveAchievements();
@@ -4103,6 +4106,7 @@ function closeAchievement() {
 function renderAchievements() {
   renderLevelStats();
   renderOverallStats();
+  renderChallengePackStats();
   renderAchievementList();
 }
 
@@ -4211,6 +4215,92 @@ function renderOverallStats() {
       <span class="stat-value">${o.failureReasons.guard_turn || 0}</span>
       <span class="stat-sub">${FAILURE_REASONS.guard_turn}</span>
     </div>
+  `;
+}
+
+function renderChallengePackStats() {
+  if (!achievementChallengePacksEl) return;
+
+  const packs = loadChallengePacks();
+  const progress = loadChallengePackProgress();
+
+  if (packs.length === 0) {
+    achievementChallengePacksEl.innerHTML = `
+      <p class="cp-stats-empty">暂无挑战包记录，去创作你的第一个挑战包吧！</p>
+    `;
+    return;
+  }
+
+  let totalWins = 0;
+  let totalFailures = 0;
+  let totalStars = 0;
+  let completedPacks = 0;
+
+  packs.forEach(pack => {
+    const p = progress[pack.id];
+    if (p) {
+      totalStars += p.totalStars || 0;
+      if (p.completed) completedPacks += 1;
+      if (p.overall) {
+        totalWins += p.overall.totalWins || 0;
+        totalFailures += p.overall.totalFailures || 0;
+      }
+    }
+  });
+
+  const maxTotalStars = packs.reduce((sum, pack) => sum + pack.levels.length * 3, 0);
+  const totalLevels = packs.reduce((sum, pack) => sum + pack.levels.length, 0);
+
+  achievementChallengePacksEl.innerHTML = `
+    <div class="cp-stats-overview">
+      <div class="overall-stat-card">
+        <span class="stat-label">挑战包数量</span>
+        <span class="stat-value">${packs.length}</span>
+      </div>
+      <div class="overall-stat-card">
+        <span class="stat-label">已通关挑战包</span>
+        <span class="stat-value">${completedPacks}/${packs.length}</span>
+      </div>
+      <div class="overall-stat-card">
+        <span class="stat-label">总星数</span>
+        <span class="stat-value">${totalStars}/${maxTotalStars} ⭐</span>
+      </div>
+      <div class="overall-stat-card">
+        <span class="stat-label">总关卡数</span>
+        <span class="stat-value">${totalLevels}</span>
+      </div>
+      <div class="overall-stat-card">
+        <span class="stat-label">总通关次数</span>
+        <span class="stat-value">${totalWins}</span>
+      </div>
+      <div class="overall-stat-card">
+        <span class="stat-label">总失败次数</span>
+        <span class="stat-value">${totalFailures}</span>
+      </div>
+    </div>
+    <div class="cp-stats-list">
+      ${packs.slice(0, 6).map(pack => {
+        const p = progress[pack.id] || { totalStars: 0, completed: false };
+        const levelCount = pack.levels.length;
+        const stars = p.totalStars || 0;
+        const maxStars = levelCount * 3;
+        const pct = levelCount > 0 ? Math.round((stars / maxStars) * 100) : 0;
+        return `
+          <div class="cp-stat-card ${p.completed ? "completed" : ""}">
+            <div class="cp-stat-card-header">
+              <span class="cp-stat-card-name">${escapeCpHtml(pack.name)}</span>
+              <span class="cp-stat-card-stars">${stars}/${maxStars} ⭐</span>
+            </div>
+            <div class="cp-card-progress"><div class="cp-card-progress-fill" style="width: ${pct}%"></div></div>
+            <div class="cp-stat-card-meta">
+              <span>${levelCount} 关</span>
+              <span>${p.completed ? "✓ 已通关" : "未通关"}</span>
+            </div>
+          </div>
+        `;
+      }).join("")}
+    </div>
+    ${packs.length > 6 ? `<p class="cp-stats-more">还有 ${packs.length - 6} 个挑战包…</p>` : ""}
   `;
 }
 
@@ -5462,7 +5552,8 @@ const challengePackImportBtn = document.getElementById("challengePackImportBtn")
 let challengePackState = {
   currentPackId: null,
   currentLevelIndex: 0,
-  playing: false
+  playing: false,
+  expandedPackId: null
 };
 
 function defaultChallengePack() {
@@ -5555,7 +5646,14 @@ function getPackProgress(packId) {
       levels: {},
       completed: false,
       totalStars: 0,
-      lastPlayedAt: null
+      lastPlayedAt: null,
+      overall: {
+        totalWins: 0,
+        totalFailures: 0,
+        totalActions: 0,
+        totalTurns: 0,
+        failureReasons: {}
+      }
     };
     saveChallengePackProgress(all);
   }
@@ -5572,6 +5670,7 @@ function getPackLevelProgress(packId, levelIndex) {
       bestTurns: null,
       bestStars: 0,
       wins: 0,
+      failures: 0,
       noWait: false,
       replay: null
     };
@@ -5582,7 +5681,19 @@ function getPackLevelProgress(packId, levelIndex) {
 function savePackLevelProgress(packId, levelIndex, levelProgress) {
   const all = loadChallengePackProgress();
   if (!all[packId]) {
-    all[packId] = { levels: {}, completed: false, totalStars: 0, lastPlayedAt: null };
+    all[packId] = {
+      levels: {},
+      completed: false,
+      totalStars: 0,
+      lastPlayedAt: null,
+      overall: {
+        totalWins: 0,
+        totalFailures: 0,
+        totalActions: 0,
+        totalTurns: 0,
+        failureReasons: {}
+      }
+    };
   }
   all[packId].levels[String(levelIndex)] = levelProgress;
   all[packId].lastPlayedAt = Date.now();
@@ -5650,16 +5761,51 @@ function renderChallengePackPanel() {
     const maxStars = totalLevels * 3;
     const pct = totalLevels > 0 ? Math.round((completedLevels / totalLevels) * 100) : 0;
     const isCompleted = progress.completed;
-    const isUnlocked = true;
+    const isExpanded = challengePackState.expandedPackId === pack.id;
     const lastPlayed = progress.lastPlayedAt ? new Date(progress.lastPlayedAt) : null;
     const lastPlayedStr = lastPlayed ? `${lastPlayed.getMonth() + 1}/${lastPlayed.getDate()}` : "未玩过";
+    const overall = progress.overall || { totalWins: 0, totalFailures: 0 };
 
     const starsStr = totalStars > 0
       ? Array.from({ length: 3 }, (_, i) => i < Math.ceil(totalStars / Math.max(1, totalLevels)) ? "★" : "☆").join("")
       : "";
 
+    let levelsHtml = "";
+    if (isExpanded && pack.levels.length > 0) {
+      levelsHtml = `<div class="cp-card-levels">
+        <div class="cp-card-levels-title">关卡详情</div>
+        <div class="cp-level-list">
+          ${pack.levels.map((level, idx) => {
+            const lp = progress.levels[String(idx)];
+            const levelCompleted = lp && lp.completed;
+            const levelStars = lp ? lp.bestStars || 0 : 0;
+            const hasReplay = lp && lp.replay && lp.replay.length > 0;
+            const unlocked = isPackLevelUnlocked(pack.id, idx);
+            const starDisplay = levelStars > 0
+              ? Array.from({ length: 3 }, (_, i) => i < levelStars ? "★" : "☆").join("")
+              : "☆☆☆";
+            return `
+              <div class="cp-level-row ${levelCompleted ? "completed" : (unlocked ? "unlocked" : "locked")}">
+                <span class="cp-level-num">${idx + 1}</span>
+                <span class="cp-level-name">${escapeCpHtml(level.name || `关卡 ${idx + 1}`)}</span>
+                <span class="cp-level-stars">${starDisplay}</span>
+                <span class="cp-level-actions">
+                  ${hasReplay ? `<button type="button" class="cp-btn-replay" data-pack-id="${pack.id}" data-level-index="${idx}" title="查看最佳回放">🎬 回放</button>` : ""}
+                </span>
+              </div>
+            `;
+          }).join("")}
+        </div>
+        <div class="cp-card-stats-summary">
+          <span>总通关：${overall.totalWins || 0}</span>
+          <span>总失败：${overall.totalFailures || 0}</span>
+          <span>胜率：${overall.totalWins + overall.totalFailures > 0 ? Math.round((overall.totalWins / (overall.totalWins + overall.totalFailures)) * 100) : 0}%</span>
+        </div>
+      </div>`;
+    }
+
     return `
-      <div class="cp-card ${isCompleted ? "completed" : "unlocked"}" data-pack-id="${pack.id}">
+      <div class="cp-card ${isCompleted ? "completed" : "unlocked"} ${isExpanded ? "expanded" : ""}" data-pack-id="${pack.id}">
         <div class="cp-card-header">
           <div>
             <div class="cp-card-title">${escapeCpHtml(pack.name)}</div>
@@ -5673,8 +5819,10 @@ function renderChallengePackPanel() {
           <div class="cp-card-meta">
             <span>关卡 ${completedLevels}/${totalLevels}</span>
             <span>上次：${lastPlayedStr}</span>
+            <span class="cp-expand-hint">${isExpanded ? "点击收起 ▲" : "点击展开 ▼"}</span>
           </div>
         </div>
+        ${levelsHtml}
         <div class="cp-card-actions">
           <button type="button" class="cp-btn-play" data-action="play" data-pack-id="${pack.id}">▶ 开始游玩</button>
           <button type="button" class="cp-btn-edit" data-action="edit" data-pack-id="${pack.id}">✏️ 编辑</button>
@@ -5683,6 +5831,19 @@ function renderChallengePackPanel() {
       </div>
     `;
   }).join("");
+
+  challengePackContentEl.querySelectorAll(".cp-card").forEach(card => {
+    card.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      const packId = card.dataset.packId;
+      if (challengePackState.expandedPackId === packId) {
+        challengePackState.expandedPackId = null;
+      } else {
+        challengePackState.expandedPackId = packId;
+      }
+      renderChallengePackPanel();
+    });
+  });
 
   challengePackContentEl.querySelectorAll(".cp-btn-play").forEach(btn => {
     btn.addEventListener("click", (e) => {
@@ -5706,6 +5867,14 @@ function renderChallengePackPanel() {
         deleteChallengePack(btn.dataset.packId);
         renderChallengePackPanel();
       }
+    });
+  });
+  challengePackContentEl.querySelectorAll(".cp-btn-replay").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const packId = btn.dataset.packId;
+      const levelIndex = parseInt(btn.dataset.levelIndex, 10);
+      openChallengePackReplay(packId, levelIndex);
     });
   });
 }
@@ -5867,11 +6036,28 @@ function updateChallengePackProgressOnWin() {
     lp.noWait = true;
   }
   try {
-    const hs = state.history.map(h => ({ action: h.action, player: { ...h.player }, ap: h.ap }));
-    if (hs.length > 2) lp.replay = hs.slice(0, 500);
+    const hs = JSON.parse(JSON.stringify(state.history));
+    if (hs.length > 2) lp.replay = hs.slice(0, 300);
   } catch (e) {}
 
   savePackLevelProgress(packId, levelIndex, lp);
+
+  const allProgress = loadChallengePackProgress();
+  if (allProgress[packId]) {
+    if (!allProgress[packId].overall) {
+      allProgress[packId].overall = {
+        totalWins: 0,
+        totalFailures: 0,
+        totalActions: 0,
+        totalTurns: 0,
+        failureReasons: {}
+      };
+    }
+    allProgress[packId].overall.totalWins += 1;
+    allProgress[packId].overall.totalActions += gameplayMetrics.currentActions;
+    allProgress[packId].overall.totalTurns += stats.turns;
+    saveChallengePackProgress(allProgress);
+  }
 
   const isLastLevel = levelIndex >= pack.levels.length - 1;
   const hasNext = !isLastLevel && isPackLevelUnlocked(packId, levelIndex + 1);
@@ -5952,6 +6138,61 @@ function updateChallengePackProgressOnWin() {
 
   render();
   return true;
+}
+
+function updateChallengePackStatsOnFail(reason) {
+  if (!challengePackState.playing || !challengePackState.currentPackId) return;
+
+  const packId = challengePackState.currentPackId;
+  const levelIndex = challengePackState.currentLevelIndex;
+
+  const lp = getPackLevelProgress(packId, levelIndex);
+  lp.failures = (lp.failures || 0) + 1;
+  savePackLevelProgress(packId, levelIndex, lp);
+
+  const allProgress = loadChallengePackProgress();
+  if (allProgress[packId]) {
+    if (!allProgress[packId].overall) {
+      allProgress[packId].overall = {
+        totalWins: 0,
+        totalFailures: 0,
+        totalActions: 0,
+        totalTurns: 0,
+        failureReasons: {}
+      };
+    }
+    allProgress[packId].overall.totalFailures += 1;
+    const reasonKey = classifyFailureReason(reason);
+    allProgress[packId].overall.failureReasons[reasonKey] =
+      (allProgress[packId].overall.failureReasons[reasonKey] || 0) + 1;
+    saveChallengePackProgress(allProgress);
+  }
+}
+
+function openChallengePackReplay(packId, levelIndex) {
+  const lp = getPackLevelProgress(packId, levelIndex);
+  if (!lp.replay || lp.replay.length === 0) {
+    alert("暂无回放记录");
+    return;
+  }
+  stopReplayPlay();
+  replayState.history = lp.replay;
+  replayState.currentStep = 0;
+  replayState.isPlaying = false;
+  replayState.speedLevel = "normal";
+  replayState.playSpeed = REPLAY_SPEEDS.normal;
+  replayPlayBtn.textContent = "▶ 播放";
+  replayTotalEl.textContent = replayState.history.length;
+  replayStepEl.textContent = "1";
+  replayProgressEl.max = replayState.history.length - 1;
+  replayProgressEl.value = 0;
+  replayProgressEl.oninput = (e) => {
+    goToReplayStep(parseInt(e.target.value, 10));
+  };
+  updateReplaySpeedButtons();
+  detectKeySteps();
+  replayEl.classList.remove("hidden");
+  renderReplayStep();
 }
 
 function importChallengePack() {

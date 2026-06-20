@@ -1699,6 +1699,97 @@ h2 {
   margin-top: 4px;
 }
 
+.challenge-pack-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cp-stats-empty {
+  text-align: center;
+  color: #7a7280;
+  padding: 20px;
+  font-size: 14px;
+}
+
+.cp-stats-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.cp-stats-overview .overall-stat-card {
+  padding: 10px;
+  background: #4a3f4f;
+  border-color: #6b5a6b;
+}
+
+.cp-stats-overview .overall-stat-card .stat-label {
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.cp-stats-overview .overall-stat-card .stat-value {
+  font-size: 18px;
+}
+
+.cp-stats-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.cp-stat-card {
+  padding: 12px;
+  border: 1px solid #5a4a5a;
+  border-radius: 8px;
+  background: #3c3340;
+  transition: all 0.2s;
+}
+
+.cp-stat-card.completed {
+  border-color: #2ecc71;
+  background: #2a3d32;
+}
+
+.cp-stat-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.cp-stat-card-name {
+  font-weight: 600;
+  color: #e8e1d8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 70%;
+}
+
+.cp-stat-card-stars {
+  color: #f1c40f;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.cp-stat-card-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #9a8e9a;
+  margin-top: 8px;
+}
+
+.cp-stats-more {
+  text-align: center;
+  font-size: 12px;
+  color: #7a7280;
+  margin: 0;
+}
+
 .achievement-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -3173,6 +3264,122 @@ h2 {
 
 .cp-btn-delete:hover {
   background: #a93226;
+}
+
+.cp-btn-replay {
+  background: #8e44ad;
+  color: #fff;
+  font-size: 12px;
+  padding: 4px 10px;
+  min-height: 26px;
+  border-radius: 4px;
+}
+
+.cp-btn-replay:hover {
+  background: #7d3c98;
+}
+
+.cp-card.expanded {
+  border-color: #e67e22;
+  box-shadow: 0 4px 20px rgba(230, 126, 34, 0.25);
+}
+
+.cp-card-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #b5a9b5;
+}
+
+.cp-expand-hint {
+  color: #e67e22;
+  opacity: 0.7;
+}
+
+.cp-card:hover .cp-expand-hint {
+  opacity: 1;
+}
+
+.cp-card-levels {
+  padding: 12px 16px;
+  border-top: 1px solid #3c3642;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.cp-card-levels-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e67e22;
+  margin-bottom: 10px;
+}
+
+.cp-level-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.cp-level-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #2a2330;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.cp-level-row.completed {
+  border-left: 3px solid #2ecc71;
+}
+
+.cp-level-row.unlocked {
+  border-left: 3px solid #f39c12;
+}
+
+.cp-level-row.locked {
+  border-left: 3px solid #5a5260;
+  opacity: 0.5;
+}
+
+.cp-level-num {
+  font-weight: 700;
+  color: #8e7e8e;
+  min-width: 24px;
+  text-align: center;
+}
+
+.cp-level-name {
+  flex: 1;
+  color: #e8e1d8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cp-level-stars {
+  color: #f1c40f;
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.cp-level-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.cp-card-stats-summary {
+  display: flex;
+  gap: 16px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed #3c3642;
+  font-size: 12px;
+  color: #a59aa5;
+  flex-wrap: wrap;
 }
 
 .cp-empty {
