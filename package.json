@@ -5,7 +5,7 @@
   "main": "index.html",
   "scripts": {
     "start": "npm run preview",
-    "preview": "python3 -m http.server 8799",
+    "preview": "node scripts/serve.js",
     "serve": "node scripts/serve.js",
     "test": "npm run test:static && npm run test:solver && npm run test:smoke",
     "test:static": "node test_solver_simple.js",

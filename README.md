@@ -6,8 +6,7 @@
 
 ### 环境要求
 
-- Node.js ≥ 16（运行自动化测试需要）
-- Python 3（启动本地预览的备选方案）
+- Node.js ≥ 16（启动本地预览与运行自动化测试需要）
 - 现代浏览器（Chrome / Firefox / Edge / Safari）
 
 ### 安装依赖（仅测试时需要）
@@ -26,12 +25,12 @@ npm install
 npm run preview
 ```
 
-然后在浏览器打开：<http://localhost:8799>
+然后按终端输出的地址打开。默认从 <http://localhost:8799> 启动；如果端口已被占用，会自动尝试后续端口。
 
-### 方式二：纯 Node.js 启动（不依赖 Python）
+### 方式二：指定端口启动
 
 ```bash
-npm run serve
+PORT=18800 npm run preview
 ```
 
 ### 方式三：直接双击
@@ -154,7 +153,7 @@ npm run test:smoke:debug
 ├── tests/
 │   └── smoke.js            🧪 Puppeteer 浏览器端冒烟测试
 ├── scripts/
-│   └── serve.js            纯 Node 静态服务器（备选）
+│   └── serve.js            纯 Node 静态服务器
 ├── package.json            脚本入口
 └── README.md               本文档
 ```
@@ -163,8 +162,8 @@ npm run test:smoke:debug
 
 | 命令 | 说明 |
 | --- | --- |
-| `npm start` / `npm run preview` | 启动本地预览（Python 3） |
-| `npm run serve` | 启动本地预览（纯 Node.js） |
+| `npm start` / `npm run preview` | 启动本地预览，端口占用时自动尝试后续端口 |
+| `PORT=18800 npm run preview` | 使用指定端口启动本地预览 |
 | `npm test` | 跑全部三层回归 |
 | `npm run test:static` | 仅静态/架构检查 |
 | `npm run test:solver` | 求解器 + 内置关卡（跳过慢速关） |
