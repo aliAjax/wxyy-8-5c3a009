@@ -136,6 +136,10 @@ function unifiedSolveLevel(level, options = {}) {
   const numGuards = guards.length;
   const maxIterations = options.maxIterations || 500000;
   const mode = options.mode || 'full';
+  const quiet = options.quiet || false;
+
+  function log(msg) { if (!quiet) console.log(msg); }
+  function printBoardSafe(state, title) { if (!quiet) printBoard(state, title); }
 
   let startPlayer, startKeys, startKeysTaken, startDoorsOpen, startFixed,
       startPlateTriggered, startScreens, startLightsActive, startVisionReduced,
@@ -561,16 +565,16 @@ function unifiedSolveLevel(level, options = {}) {
     return null;
   }
 
-  console.log('开始搜索关卡3...');
-  printBoard(initial, "初始状态");
+  log('开始搜索关卡3...');
+  printBoardSafe(initial, "初始状态");
 
   while (queue.length > 0 && iterations < maxIterations) {
     iterations++;
     
     if (iterations % 100000 === 0) {
-      console.log(`迭代: ${iterations}, 队列: ${queue.length}, 已访问: ${visited.size}, 最大深度: ${maxDepth}`);
+      log(`迭代: ${iterations}, 队列: ${queue.length}, 已访问: ${visited.size}, 最大深度: ${maxDepth}`);
       const lastState = queue[queue.length - 1];
-      printBoard(lastState, `状态 #${iterations}`);
+      printBoardSafe(lastState, `状态 #${iterations}`);
     }
 
     const cur = queue.shift();
@@ -709,8 +713,8 @@ function unifiedSolveLevel(level, options = {}) {
           nextState.actions[nextState.actions.length - 1] = actionLabel + "+等待";
           const found = checkAndEnqueue(nextState);
           if (found) {
-            console.log(`找到解！迭代: ${iterations}`);
-            printBoard(found, "最终状态");
+            log(`找到解！迭代: ${iterations}`);
+            printBoardSafe(found, "最终状态");
             return {
               solvable: true,
               path: found.path,
@@ -727,8 +731,8 @@ function unifiedSolveLevel(level, options = {}) {
         ns.alertLevel = maxGuardAlert;
         const found = checkAndEnqueue(ns);
         if (found) {
-          console.log(`找到解！迭代: ${iterations}`);
-          printBoard(found, "最终状态");
+          log(`找到解！迭代: ${iterations}`);
+          printBoardSafe(found, "最终状态");
           return {
             solvable: true,
             path: found.path,
@@ -796,8 +800,8 @@ function unifiedSolveLevel(level, options = {}) {
             nextState.actions[nextState.actions.length - 1] = "修复展柜+等待";
             const found = checkAndEnqueue(nextState);
             if (found) {
-              console.log(`找到解！迭代: ${iterations}`);
-              printBoard(found, "最终状态");
+              log(`找到解！迭代: ${iterations}`);
+              printBoardSafe(found, "最终状态");
               return {
                 solvable: true,
                 path: found.path,
@@ -814,8 +818,8 @@ function unifiedSolveLevel(level, options = {}) {
           ns.alertLevel = maxGuardAlert;
           const found = checkAndEnqueue(ns);
           if (found) {
-            console.log(`找到解！迭代: ${iterations}`);
-            printBoard(found, "最终状态");
+            log(`找到解！迭代: ${iterations}`);
+            printBoardSafe(found, "最终状态");
             return {
               solvable: true,
               path: found.path,
@@ -863,8 +867,8 @@ function unifiedSolveLevel(level, options = {}) {
         nextState.actions = nextState.actionLabels;
         const found = checkAndEnqueue(nextState);
         if (found) {
-          console.log(`找到解！迭代: ${iterations}`);
-          printBoard(found, "最终状态");
+          log(`找到解！迭代: ${iterations}`);
+          printBoardSafe(found, "最终状态");
           return {
             solvable: true,
             path: found.path,
@@ -878,7 +882,7 @@ function unifiedSolveLevel(level, options = {}) {
     }
   }
 
-  console.log(`搜索结束，未找到解。迭代: ${iterations}, 已访问: ${visited.size}, 最大深度: ${maxDepth}`);
+  log(`搜索结束，未找到解。迭代: ${iterations}, 已访问: ${visited.size}, 最大深度: ${maxDepth}`);
   return {
     solvable: false,
     path: null,
@@ -888,11 +892,15 @@ function unifiedSolveLevel(level, options = {}) {
   };
 }
 
-const result = unifiedSolveLevel(level, { maxIterations: 500000, mode: 'full' });
+if (require.main === module) {
+  const result = unifiedSolveLevel(level, { maxIterations: 500000, mode: 'full' });
 
-if (result.solvable) {
-  console.log('\n=== 完整路径 ===');
-  console.log(result.actions.join(' → '));
-} else {
-  console.log('\n=== 无解 ===');
+  if (result.solvable) {
+    console.log('\n=== 完整路径 ===');
+    console.log(result.actions.join(' → '));
+  } else {
+    console.log('\n=== 无解 ===');
+  }
 }
+
+module.exports = { unifiedSolveLevel, BOARD_W, BOARD_H, GUARD_BEHAVIOR, CAMERA_DIRECTION, level: level };
