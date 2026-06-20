@@ -51,6 +51,14 @@ const replayTotalEl = document.getElementById("replayTotal");
 const replayLogEl = document.getElementById("replayLog");
 const replayActionEl = document.getElementById("replayAction");
 const replayProgressEl = document.getElementById("replayProgress");
+const replaySpeedSlowBtn = document.getElementById("replaySpeedSlow");
+const replaySpeedNormalBtn = document.getElementById("replaySpeedNormal");
+const replaySpeedFastBtn = document.getElementById("replaySpeedFast");
+const replayJumpFixBtn = document.getElementById("replayJumpFix");
+const replayJumpDoorBtn = document.getElementById("replayJumpDoor");
+const replayJumpKeyBtn = document.getElementById("replayJumpKey");
+const replayJumpSeenBtn = document.getElementById("replayJumpSeen");
+const replayJumpWinBtn = document.getElementById("replayJumpWin");
 
 const levels = [
   {
@@ -363,7 +371,21 @@ let replayState = {
   currentStep: 0,
   isPlaying: false,
   playInterval: null,
-  playSpeed: 1000
+  playSpeed: 1000,
+  speedLevel: "normal",
+  keySteps: {
+    fix: -1,
+    door: -1,
+    key: -1,
+    seen: -1,
+    win: -1
+  }
+};
+
+const REPLAY_SPEEDS = {
+  slow: 2000,
+  normal: 1000,
+  fast: 350
 };
 
 let gameplayMetrics = {
@@ -1129,6 +1151,14 @@ function bindReplayControls() {
   replayPlayBtn.addEventListener("click", toggleReplayPlay);
   replayPrevBtn.addEventListener("click", replayPrevStep);
   replayNextBtn.addEventListener("click", replayNextStep);
+  replaySpeedSlowBtn.addEventListener("click", () => setReplaySpeed("slow"));
+  replaySpeedNormalBtn.addEventListener("click", () => setReplaySpeed("normal"));
+  replaySpeedFastBtn.addEventListener("click", () => setReplaySpeed("fast"));
+  replayJumpFixBtn.addEventListener("click", () => jumpToKeyStep("fix"));
+  replayJumpDoorBtn.addEventListener("click", () => jumpToKeyStep("door"));
+  replayJumpKeyBtn.addEventListener("click", () => jumpToKeyStep("key"));
+  replayJumpSeenBtn.addEventListener("click", () => jumpToKeyStep("seen"));
+  replayJumpWinBtn.addEventListener("click", () => jumpToKeyStep("win"));
 }
 
 function renderLevelButtons() {
@@ -1970,6 +2000,8 @@ function openReplay(isWin) {
   replayState.history = state.history;
   replayState.currentStep = 0;
   replayState.isPlaying = false;
+  replayState.speedLevel = "normal";
+  replayState.playSpeed = REPLAY_SPEEDS.normal;
   replayPlayBtn.textContent = "▶ 播放";
   replayTotalEl.textContent = replayState.history.length;
   replayStepEl.textContent = "1";
@@ -1978,8 +2010,65 @@ function openReplay(isWin) {
   replayProgressEl.oninput = (e) => {
     goToReplayStep(parseInt(e.target.value, 10));
   };
+  updateReplaySpeedButtons();
+  detectKeySteps();
   replayEl.classList.remove("hidden");
   renderReplayStep();
+}
+
+function detectKeySteps() {
+  const history = replayState.history;
+  replayState.keySteps = { fix: -1, door: -1, key: -1, seen: -1, win: -1 };
+
+  for (let i = 0; i < history.length; i += 1) {
+    const snap = history[i];
+    const prevSnap = i > 0 ? history[i - 1] : null;
+
+    if (replayState.keySteps.fix === -1 && snap.action.indexOf("修复展柜") !== -1) {
+      replayState.keySteps.fix = i;
+    }
+    if (replayState.keySteps.door === -1 && snap.action.indexOf("开门") !== -1) {
+      replayState.keySteps.door = i;
+    }
+    if (replayState.keySteps.seen === -1 && snap.action.indexOf("被发现") !== -1) {
+      replayState.keySteps.seen = i;
+    }
+    if (replayState.keySteps.win === -1 && snap.action.indexOf("通关成功") !== -1) {
+      replayState.keySteps.win = i;
+    }
+    if (replayState.keySteps.key === -1 && prevSnap) {
+      const prevKeyCount = prevSnap.keys;
+      const curKeyCount = snap.keys;
+      if (curKeyCount > prevKeyCount) {
+        replayState.keySteps.key = i;
+      }
+    }
+  }
+}
+
+function setReplaySpeed(level) {
+  if (!REPLAY_SPEEDS[level]) return;
+  replayState.speedLevel = level;
+  replayState.playSpeed = REPLAY_SPEEDS[level];
+  updateReplaySpeedButtons();
+  if (replayState.isPlaying) {
+    stopReplayPlay();
+    startReplayPlay();
+  }
+}
+
+function updateReplaySpeedButtons() {
+  const btns = { slow: replaySpeedSlowBtn, normal: replaySpeedNormalBtn, fast: replaySpeedFastBtn };
+  Object.keys(btns).forEach((level) => {
+    btns[level].classList.toggle("active", replayState.speedLevel === level);
+  });
+}
+
+function jumpToKeyStep(keyType) {
+  const stepIndex = replayState.keySteps[keyType];
+  if (stepIndex === -1) return;
+  stopReplayPlay();
+  goToReplayStep(stepIndex);
 }
 
 function closeReplay() {
@@ -2061,6 +2150,12 @@ function renderReplayStep() {
   });
   replayPrevBtn.disabled = replayState.currentStep <= 0;
   replayNextBtn.disabled = replayState.currentStep >= replayState.history.length - 1;
+  replayPlayBtn.disabled = replayState.history.length <= 1;
+  replayJumpFixBtn.disabled = replayState.keySteps.fix === -1;
+  replayJumpDoorBtn.disabled = replayState.keySteps.door === -1;
+  replayJumpKeyBtn.disabled = replayState.keySteps.key === -1;
+  replayJumpSeenBtn.disabled = replayState.keySteps.seen === -1;
+  replayJumpWinBtn.disabled = replayState.keySteps.win === -1;
 }
 
 function replayPrevStep() {

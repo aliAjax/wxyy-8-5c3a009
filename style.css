@@ -802,6 +802,74 @@ h2 {
   font-size: 16px;
 }
 
+.replay-speed-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #201b20;
+  border: 1px solid #514956;
+  flex-wrap: wrap;
+}
+
+.replay-speed-label {
+  color: #cec4ba;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.replay-speed-btn {
+  flex: 1;
+  min-width: 60px;
+  background: #3c3642;
+  color: #f4efe6;
+  font-weight: normal;
+  font-size: 14px;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.replay-speed-btn.active {
+  background: #d7bd77;
+  color: #201b20;
+  font-weight: bold;
+}
+
+.replay-jump-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #201b20;
+  border: 1px solid #514956;
+  flex-wrap: wrap;
+}
+
+.replay-jump-label {
+  color: #cec4ba;
+  font-size: 14px;
+  white-space: nowrap;
+  width: 100%;
+  margin-bottom: 4px;
+}
+
+.replay-jump-btn {
+  flex: 1;
+  min-width: 90px;
+  background: #3c3642;
+  color: #f4efe6;
+  font-weight: normal;
+  font-size: 13px;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
+.replay-jump-btn:hover:not(:disabled) {
+  background: #514956;
+}
+
 .replay-progress {
   display: flex;
   align-items: center;
@@ -881,6 +949,65 @@ h2 {
 
   .replay-log {
     height: 260px;
+  }
+}
+
+@media (max-width: 600px) {
+  .replay-speed-controls {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .replay-speed-label {
+    width: 100%;
+    margin-bottom: 2px;
+    font-size: 13px;
+  }
+
+  .replay-speed-btn {
+    min-width: 0;
+    font-size: 13px;
+    min-height: 36px;
+  }
+
+  .replay-controls {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .replay-controls button {
+    font-size: 13px;
+    padding: 0 8px;
+    min-height: 40px;
+  }
+
+  .replay-progress {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .replay-progress span {
+    text-align: center;
+    font-size: 13px;
+  }
+
+  .replay-jump-controls {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .replay-jump-label {
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+
+  .replay-jump-btn {
+    min-width: calc(50% - 3px);
+    font-size: 12px;
+    min-height: 36px;
+    padding: 0 6px;
   }
 }
 
