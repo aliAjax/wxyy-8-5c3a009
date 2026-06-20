@@ -67,7 +67,13 @@ let editorState = {
   diagnosisTimer: null,
   lastDiagnosisResult: null,
   library: [],
-  libraryOpen: false
+  libraryOpen: false,
+  activeDiagnosticId: null,
+  activeDiagnosticCells: [],
+  activeDiagnosticClass: "",
+  activeDebugCategory: null,
+  activeSolutionStep: null,
+  stepNumberCells: []
 };
 
 function createEmptyLevel() {
@@ -166,9 +172,18 @@ function renderEditorBoard() {
   editorBoardEl.innerHTML = "";
   const level = editorState.level;
 
+  const highlightSet = new Set(
+    editorState.activeDiagnosticCells.map(p => `${p.x},${p.y}`)
+  );
+  const stepNumberMap = new Map();
+  editorState.stepNumberCells.forEach(s => {
+    stepNumberMap.set(`${s.pos.x},${s.pos.y}`, s.step);
+  });
+
   for (let y = 0; y < GRID_HEIGHT; y += 1) {
     for (let x = 0; x < GRID_WIDTH; x += 1) {
       const point = { x, y };
+      const pointKey = `${x},${y}`;
       const tile = document.createElement("div");
       tile.className = "tile";
       tile.dataset.x = x;
@@ -247,6 +262,17 @@ function renderEditorBoard() {
         }
       }
 
+      if (highlightSet.has(pointKey) && editorState.activeDiagnosticClass) {
+        tile.classList.add(editorState.activeDiagnosticClass);
+      }
+      if (stepNumberMap.has(pointKey)) {
+        const stepNum = stepNumberMap.get(pointKey);
+        const stepBadge = document.createElement("div");
+        stepBadge.className = "diag-step-number";
+        stepBadge.textContent = String(stepNum + 1);
+        tile.appendChild(stepBadge);
+      }
+
       tile.appendChild(label);
       tile.addEventListener("click", () => handleTileClick(x, y));
       editorBoardEl.appendChild(tile);
@@ -270,6 +296,7 @@ function handleTileClick(x, y) {
     placeOrRemove(tool, point);
   }
 
+  clearDiagnosticHighlight();
   renderEditorBoard();
   updateEditorStats();
   validateLevel();
@@ -591,6 +618,7 @@ function renderGuardBehaviorConfig() {
       const guard = editorState.level.guards[index];
       if (guard) {
         guard.behavior = e.target.value;
+        clearDiagnosticHighlight();
         renderGuardBehaviorConfig();
         scheduleDiagnosis();
       }
@@ -606,6 +634,8 @@ function renderGuardBehaviorConfig() {
         guard.hearingRange = value;
         const valueEl = e.target.parentElement.querySelector(".guard-hearing-value");
         if (valueEl) valueEl.textContent = value;
+        clearDiagnosticHighlight();
+        scheduleDiagnosis();
       }
     });
   });
@@ -615,6 +645,7 @@ function renderGuardBehaviorConfig() {
       const index = parseInt(e.target.dataset.guardIndex, 10);
       if (confirm(`确定要删除巡逻员 ${index + 1} 吗？`)) {
         editorState.level.guards.splice(index, 1);
+        clearDiagnosticHighlight();
         renderEditorBoard();
         updateEditorStats();
         renderGuardBehaviorConfig();
@@ -663,6 +694,7 @@ function renderCameraList() {
       const cameras = editorState.level.mechanisms?.cameras || [];
       if (cameras[index]) {
         cameras[index].direction = e.target.value;
+        clearDiagnosticHighlight();
         renderEditorBoard();
         scheduleDiagnosis();
       }
@@ -676,8 +708,10 @@ function renderCameraList() {
         if (editorState.level.mechanisms?.cameras) {
           editorState.level.mechanisms.cameras.splice(index, 1);
         }
+        clearDiagnosticHighlight();
         renderEditorBoard();
         updateEditorStats();
+        renderCameraList();
         scheduleDiagnosis();
       }
     });
@@ -704,9 +738,13 @@ function playEditorLevel() {
     editorState.lastDiagnosisResult = result;
     renderDiagnosisResult(result);
     if (!result.solvable) {
-      if (!confirm("当前关卡似乎不可通关，确定要试玩吗？")) {
-        return;
-      }
+      const issues = result.issues.map(i => typeof i === "string" ? i : i.message);
+      showSaveValidationDialog(issues, () => {
+        if (typeof diagnosisIssuesEl !== "undefined" && diagnosisIssuesEl.scrollIntoView) {
+          diagnosisIssuesEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
+      return;
     }
   }
 
@@ -727,11 +765,66 @@ function clearEditorLevel() {
     editorState.level = createEmptyLevel();
     editorState.currentGuardPath = null;
     editorLevelNameInput.value = "自定义";
+    clearDiagnosticHighlight();
     renderEditorBoard();
     updateEditorStats();
     validateLevel();
     scheduleDiagnosis();
   }
+}
+
+function showSaveValidationDialog(issues, onGoToDiagnose) {
+  const overlay = document.createElement("div");
+  overlay.className = "save-validation-overlay";
+
+  const dialog = document.createElement("div");
+  dialog.className = "save-validation-dialog";
+
+  const issueListHtml = issues.length > 0
+    ? `<div class="save-validation-issues">
+         ${issues.map(i => `<div class="save-validation-issue">⚠️ ${typeof i === "string" ? i : (i.message || String(i))}</div>`).join("")}
+       </div>`
+    : "";
+
+  dialog.innerHTML = `
+    <h3>⚠️ 关卡不可通关</h3>
+    <p>检测到以下问题，无法保存此关卡：</p>
+    ${issueListHtml}
+    <p style="font-size: 12px; color: #7a7280;">请使用右侧的调试视图定位和修复问题</p>
+    <div class="save-validation-actions">
+      <button type="button" class="save-validation-btn-cancel" id="svCancelBtn">取消</button>
+      <button type="button" class="save-validation-btn-diagnose" id="svDiagnoseBtn">查看诊断</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  document.getElementById("svCancelBtn").addEventListener("click", () => {
+    overlay.remove();
+  });
+
+  document.getElementById("svDiagnoseBtn").addEventListener("click", () => {
+    overlay.remove();
+    if (typeof onGoToDiagnose === "function") {
+      onGoToDiagnose();
+    }
+    if (!editorState.isOpen) {
+      toggleEditor();
+    }
+    if (diagnosisIssuesEl && diagnosisIssuesEl.scrollIntoView) {
+      diagnosisIssuesEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+    if (editorDiagnoseBtn) {
+      editorDiagnoseBtn.focus();
+    }
+  });
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) {
+      overlay.remove();
+    }
+  });
 }
 
 function loadLibraryFromStorage() {
@@ -799,8 +892,12 @@ function handleLibrarySave() {
     renderDiagnosisResult(result);
     solvable = result.solvable;
     if (!solvable) {
-      const issueSummary = result.issues.slice(0, 2).join("；") || "找不到合法通关路线";
-      showWarning("关卡不可通关，无法保存：" + issueSummary);
+      showSaveValidationDialog(result.issues, () => {
+        closeLevelLibrary();
+        if (diagnosisIssuesEl && diagnosisIssuesEl.scrollIntoView) {
+          diagnosisIssuesEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
       return;
     }
   }
@@ -900,6 +997,7 @@ function loadLevelFromLibrary(id) {
   }
   editorState.currentGuardPath = null;
   editorLevelNameInput.value = editorState.level.name || "自定义";
+  clearDiagnosticHighlight();
   renderEditorBoard();
   updateEditorStats();
   validateLevel();
@@ -936,8 +1034,12 @@ function overwriteLevelInLibrary(id) {
     renderDiagnosisResult(result);
     solvable = result.solvable;
     if (!solvable) {
-      const issueSummary = result.issues.slice(0, 2).join("；") || "找不到合法通关路线";
-      showWarning("关卡不可通关，无法覆盖：" + issueSummary);
+      showSaveValidationDialog(result.issues, () => {
+        closeLevelLibrary();
+        if (diagnosisIssuesEl && diagnosisIssuesEl.scrollIntoView) {
+          diagnosisIssuesEl.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      });
       return;
     }
   }
@@ -973,6 +1075,7 @@ function returnToEditor() {
     }
     editorState.currentGuardPath = null;
     editorLevelNameInput.value = editorState.level.name || "自定义";
+    clearDiagnosticHighlight();
     renderEditorBoard();
     updateEditorStats();
     validateLevel();
@@ -1019,6 +1122,7 @@ function runDiagnosis() {
     diagnosisWarningsEl.innerHTML = "";
     diagnosisSolutionEl.innerHTML = "";
     editorState.lastDiagnosisResult = null;
+    clearDiagnosticHighlight();
     return;
   }
 
@@ -1040,7 +1144,124 @@ function runDiagnosis() {
   }
 }
 
+function clearDiagnosticHighlight() {
+  editorState.activeDiagnosticId = null;
+  editorState.activeDiagnosticCells = [];
+  editorState.activeDiagnosticClass = "";
+  editorState.activeDebugCategory = null;
+  editorState.activeSolutionStep = null;
+  editorState.stepNumberCells = [];
+  renderEditorBoard();
+}
+
+function setDiagnosticHighlight(id, cells, highlightClass) {
+  if (editorState.activeDiagnosticId === id) {
+    clearDiagnosticHighlight();
+  } else {
+    editorState.activeDiagnosticId = id;
+    editorState.activeDiagnosticCells = cells || [];
+    editorState.activeDiagnosticClass = highlightClass || "diag-generic-highlight";
+    editorState.activeDebugCategory = null;
+    editorState.activeSolutionStep = null;
+    editorState.stepNumberCells = [];
+    renderEditorBoard();
+  }
+  renderDiagnosisResult(editorState.lastDiagnosisResult);
+}
+
+function getHighlightClassForType(type) {
+  if (type && type.indexOf("unreachable") !== -1) return "diag-unreachable";
+  if (type && type.indexOf("vision") !== -1) return "diag-vision-blocked";
+  if (type && type.indexOf("key") !== -1) return "diag-key-dependency";
+  if (type && type.indexOf("door") !== -1) return "diag-problem-door";
+  if (type && type.indexOf("exhibit") !== -1) return "diag-vision-blocked";
+  if (type && type.indexOf("exit") !== -1) return "diag-unreachable";
+  if (type && type.indexOf("timing") !== -1) return "diag-vision-blocked";
+  if (type && type.indexOf("no_solution") !== -1) return "diag-unreachable";
+  return "diag-generic-highlight";
+}
+
+function setDebugCategoryHighlight(category) {
+  const result = editorState.lastDiagnosisResult;
+  if (!result || !result.debug) return;
+
+  if (editorState.activeDebugCategory === category) {
+    clearDiagnosticHighlight();
+    return;
+  }
+
+  let cells = [];
+  let highlightClass = "diag-generic-highlight";
+  editorState.stepNumberCells = [];
+
+  switch (category) {
+    case "unreachable":
+      cells = result.debug.unreachableCells || [];
+      highlightClass = "diag-unreachable";
+      break;
+    case "vision":
+      cells = result.debug.permanentlyBlockedCells || [];
+      highlightClass = "diag-vision-blocked";
+      break;
+    case "key":
+      (result.debug.keyDependencies || []).forEach(kd => {
+        cells = cells.concat(kd.cells || []);
+      });
+      highlightClass = "diag-key-dependency";
+      break;
+    case "door":
+      (result.debug.problemDoors || []).forEach(pd => {
+        cells = cells.concat(pd.cells || []);
+      });
+      highlightClass = "diag-problem-door";
+      break;
+    case "solution":
+      cells = (result.debug.solutionPreview || []).map(s => s.pos);
+      editorState.stepNumberCells = result.debug.solutionPreview || [];
+      highlightClass = "diag-solution-step";
+      break;
+  }
+
+  editorState.activeDiagnosticId = null;
+  editorState.activeDebugCategory = category;
+  editorState.activeSolutionStep = null;
+  editorState.activeDiagnosticCells = cells;
+  editorState.activeDiagnosticClass = highlightClass;
+  renderEditorBoard();
+  renderDiagnosisResult(result);
+}
+
+function setSolutionStepHighlight(stepIndex) {
+  const result = editorState.lastDiagnosisResult;
+  if (!result || !result.debug || !result.debug.solutionPreview) return;
+
+  if (editorState.activeSolutionStep === stepIndex) {
+    clearDiagnosticHighlight();
+    return;
+  }
+
+  const preview = result.debug.solutionPreview;
+  let cells = [];
+  let stepCells = [];
+
+  for (let i = 0; i <= stepIndex && i < preview.length; i++) {
+    cells.push(preview[i].pos);
+    stepCells.push(preview[i]);
+  }
+
+  editorState.activeDiagnosticId = null;
+  editorState.activeDebugCategory = null;
+  editorState.activeSolutionStep = stepIndex;
+  editorState.activeDiagnosticCells = cells;
+  editorState.activeDiagnosticClass = "diag-solution-step";
+  editorState.stepNumberCells = stepCells;
+  renderEditorBoard();
+  renderDiagnosisResult(result);
+}
+
 function renderDiagnosisResult(result) {
+  if (!result) return;
+
   if (result.solvable) {
     diagnosisStatusEl.querySelector(".status-icon").textContent = "✅";
     diagnosisStatusEl.querySelector(".status-text").textContent = "关卡可通关";
@@ -1059,20 +1280,40 @@ function renderDiagnosisResult(result) {
   });
   diagnosisChecksEl.innerHTML = checksHtml;
 
+  let debugSummaryHtml = renderDebugSummary(result);
+
   if (result.issues.length > 0) {
     let issuesHtml = `<div class="diagnosis-section-title">问题</div>`;
     result.issues.forEach(issue => {
-      issuesHtml += `<div class="issue-item">⚠️ ${issue}</div>`;
+      const issueId = issue.id || "";
+      const issueMsg = issue.message || String(issue);
+      const issueCells = issue.cells || [];
+      const isActive = editorState.activeDiagnosticId === issueId;
+      const highlightClass = getHighlightClassForType(issue.type);
+      issuesHtml += `<div class="issue-item diagnostic-item ${isActive ? "active" : ""}" data-diagnostic-id="${issueId}" data-highlight-class="${highlightClass}">⚠️ ${issueMsg}`;
+      if (issueCells.length > 0) {
+        issuesHtml += ` <span class="diagnosis-count-badge">${issueCells.length}格</span>`;
+      }
+      issuesHtml += `</div>`;
     });
-    diagnosisIssuesEl.innerHTML = issuesHtml;
+    diagnosisIssuesEl.innerHTML = issuesHtml + debugSummaryHtml;
   } else {
-    diagnosisIssuesEl.innerHTML = "";
+    diagnosisIssuesEl.innerHTML = debugSummaryHtml;
   }
 
   if (result.warnings.length > 0) {
     let warningsHtml = `<div class="diagnosis-section-title">提示</div>`;
     result.warnings.forEach(warning => {
-      warningsHtml += `<div class="warning-item">💡 ${warning}</div>`;
+      const warnId = warning.id || "";
+      const warnMsg = warning.message || String(warning);
+      const warnCells = warning.cells || [];
+      const isActive = editorState.activeDiagnosticId === warnId;
+      const highlightClass = getHighlightClassForType(warning.type);
+      warningsHtml += `<div class="warning-item diagnostic-item ${isActive ? "active" : ""}" data-diagnostic-id="${warnId}" data-highlight-class="${highlightClass}">💡 ${warnMsg}`;
+      if (warnCells.length > 0) {
+        warningsHtml += ` <span class="diagnosis-count-badge">${warnCells.length}格</span>`;
+      }
+      warningsHtml += `</div>`;
     });
     diagnosisWarningsEl.innerHTML = warningsHtml;
   } else {
@@ -1083,19 +1324,136 @@ function renderDiagnosisResult(result) {
     const steps = result.solution.actions.length;
     let solutionHtml = `<div class="diagnosis-section-title">示例解法</div>`;
     solutionHtml += `<div class="solution-info">约 ${steps} 步完成</div>`;
-    solutionHtml += `<div class="solution-actions">`;
-    const previewActions = result.solution.actions.slice(0, 8);
-    previewActions.forEach((action, i) => {
-      solutionHtml += `<span class="action-step">${i + 1}. ${action}</span>`;
-    });
-    if (result.solution.actions.length > 8) {
-      solutionHtml += `<span class="action-more">... 还有 ${result.solution.actions.length - 8} 步</span>`;
+
+    solutionHtml += `<div class="solution-step-preview">`;
+    const previewCount = Math.min(6, result.solution.actions.length);
+    const preview = result.debug && result.debug.solutionPreview ? result.debug.solutionPreview : [];
+    for (let i = 0; i < previewCount; i++) {
+      const action = result.solution.actions[i] || "";
+      const pos = preview[i] ? preview[i].pos : null;
+      const isActive = editorState.activeSolutionStep === i;
+      const posStr = pos ? `(${pos.x},${pos.y})` : "";
+      solutionHtml += `<div class="solution-step-item ${isActive ? "active" : ""}" data-step-index="${i}">
+        <span class="solution-step-num">${i + 1}</span>
+        <span class="solution-step-action">${action}</span>
+        <span class="solution-step-pos">${posStr}</span>
+      </div>`;
+    }
+    if (result.solution.actions.length > previewCount) {
+      solutionHtml += `<span class="action-more">... 还有 ${result.solution.actions.length - previewCount} 步</span>`;
     }
     solutionHtml += `</div>`;
+
     diagnosisSolutionEl.innerHTML = solutionHtml;
   } else {
     diagnosisSolutionEl.innerHTML = "";
   }
+
+  bindDiagnosticClickHandlers(result);
+}
+
+function renderDebugSummary(result) {
+  const debug = result.debug || {};
+  const unreachableCount = (debug.unreachableCells || []).length;
+  const visionCount = (debug.permanentlyBlockedCells || []).length;
+  const keyCount = (debug.keyDependencies || []).length;
+  const doorCount = (debug.problemDoors || []).length;
+  const solutionCount = (debug.solutionPreview || []).length;
+
+  if (unreachableCount === 0 && visionCount === 0 && keyCount === 0 && doorCount === 0 && solutionCount === 0) {
+    return "";
+  }
+
+  const unreachableActive = editorState.activeDebugCategory === "unreachable";
+  const visionActive = editorState.activeDebugCategory === "vision";
+  const keyActive = editorState.activeDebugCategory === "key";
+  const doorActive = editorState.activeDebugCategory === "door";
+  const solutionActive = editorState.activeDebugCategory === "solution";
+  const hasAnyActive = editorState.activeDiagnosticId || editorState.activeDebugCategory || editorState.activeSolutionStep !== null;
+
+  let html = `<div class="debug-summary-section">
+    <div class="debug-summary-title">
+      <span>调试视图</span>
+      ${hasAnyActive ? '<button type="button" class="debug-summary-clear" id="debugClearBtn">清除高亮</button>' : ""}
+    </div>
+    <div class="debug-summary-items">`;
+
+  if (unreachableCount > 0) {
+    html += `<span class="debug-chip debug-chip-unreachable ${unreachableActive ? "active" : ""}" data-debug-category="unreachable">
+      <span class="debug-chip-icon">🚫</span>不可达 ${unreachableCount}格
+    </span>`;
+  }
+  if (visionCount > 0) {
+    html += `<span class="debug-chip debug-chip-vision ${visionActive ? "active" : ""}" data-debug-category="vision">
+      <span class="debug-chip-icon">👁</span>视线封锁 ${visionCount}格
+    </span>`;
+  }
+  if (keyCount > 0) {
+    html += `<span class="debug-chip debug-chip-key ${keyActive ? "active" : ""}" data-debug-category="key">
+      <span class="debug-chip-icon">🔑</span>钥匙依赖 ${keyCount}个
+    </span>`;
+  }
+  if (doorCount > 0) {
+    html += `<span class="debug-chip debug-chip-door ${doorActive ? "active" : ""}" data-debug-category="door">
+      <span class="debug-chip-icon">🚪</span>问题门 ${doorCount}个
+    </span>`;
+  }
+  if (solutionCount > 0) {
+    html += `<span class="debug-chip debug-chip-solution ${solutionActive ? "active" : ""}" data-debug-category="solution">
+      <span class="debug-chip-icon">🗺</span>解法前${solutionCount}步
+    </span>`;
+  }
+
+  html += `</div></div>`;
+  return html;
+}
+
+function bindDiagnosticClickHandlers(result) {
+  diagnosisIssuesEl.querySelectorAll(".diagnostic-item").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = el.dataset.diagnosticId;
+      const highlightClass = el.dataset.highlightClass || "diag-generic-highlight";
+      const allIssues = (result.issues || []).concat(result.warnings || []);
+      const item = allIssues.find(i => i.id === id);
+      const cells = item && item.cells ? item.cells : [];
+      setDiagnosticHighlight(id, cells, highlightClass);
+    });
+  });
+
+  diagnosisWarningsEl.querySelectorAll(".diagnostic-item").forEach(el => {
+    el.addEventListener("click", () => {
+      const id = el.dataset.diagnosticId;
+      const highlightClass = el.dataset.highlightClass || "diag-generic-highlight";
+      const allIssues = (result.issues || []).concat(result.warnings || []);
+      const item = allIssues.find(i => i.id === id);
+      const cells = item && item.cells ? item.cells : [];
+      setDiagnosticHighlight(id, cells, highlightClass);
+    });
+  });
+
+  const clearBtn = document.getElementById("debugClearBtn");
+  if (clearBtn) {
+    clearBtn.addEventListener("click", () => {
+      clearDiagnosticHighlight();
+      renderDiagnosisResult(editorState.lastDiagnosisResult);
+    });
+  }
+
+  document.querySelectorAll(".debug-chip").forEach(el => {
+    el.addEventListener("click", () => {
+      const category = el.dataset.debugCategory;
+      setDebugCategoryHighlight(category);
+    });
+  });
+
+  diagnosisSolutionEl.querySelectorAll(".solution-step-item").forEach(el => {
+    el.addEventListener("click", () => {
+      const stepIndex = parseInt(el.dataset.stepIndex, 10);
+      if (!isNaN(stepIndex)) {
+        setSolutionStepHighlight(stepIndex);
+      }
+    });
+  });
 }
 
 function isLevelSolvable() {
