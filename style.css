@@ -451,8 +451,20 @@ h2 {
 
 .touch-controls {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
+}
+
+.touch-controls .touch-undo {
+  background: #77b6c8;
+  color: #201b20;
+  font-size: 20px;
+  font-weight: bold;
+}
+
+.touch-controls .touch-undo:disabled {
+  background: #3c3642;
+  color: #7a7280;
 }
 
 .log {
@@ -1385,6 +1397,17 @@ h2 {
 }
 
 .hint-btn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+#undoBtn {
+  background: #77b6c8;
+  color: #201b20;
+  font-size: 15px;
+}
+
+#undoBtn:disabled {
   opacity: .45;
   cursor: not-allowed;
 }

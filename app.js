@@ -52,6 +52,7 @@ const waitBtn = document.getElementById("waitBtn");
 const repairBtn = document.getElementById("repairBtn");
 const hintBtn = document.getElementById("hintBtn");
 const restartBtn = document.getElementById("restartBtn");
+const undoBtn = document.getElementById("undoBtn");
 const tutorialBtn = document.getElementById("tutorialBtn");
 const dailyBtn = document.getElementById("dailyBtn");
 const achievementBtn = document.getElementById("achievementBtn");
@@ -613,6 +614,7 @@ function snapshotState(action) {
     pendingVisionReduction: state.pendingVisionReduction,
     cameraShutdownTurns: state.cameraShutdownTurns || 0,
     alertLevel: state.alertLevel,
+    alertDecayTimer: state.alertDecayTimer || 0,
     soundSources: state.soundSources.map(s => ({ ...s, position: { ...s.position } })),
     level: {
       walls: [...state.level.walls],
@@ -647,12 +649,88 @@ function snapshotState(action) {
         cameras: m.cameras ? m.cameras.map(c => ({ ...c })) : []
       } : { pressurePlates: [], screens: [], lights: [], cameras: [] }
     },
-    log: [...state.log]
+    log: [...state.log],
+    gameplayMetrics: { ...gameplayMetrics }
   };
 }
 
 function recordHistory(action) {
   state.history.push(snapshotState(action));
+}
+
+function canUndo() {
+  if (!state || !state.history || state.history.length <= 1) return false;
+  if (state.done) return false;
+  return true;
+}
+
+function restoreStateFromSnapshot(snapshot) {
+  state.player = { ...snapshot.player };
+  state.ap = snapshot.ap;
+  state.keys = snapshot.keys;
+  state.done = snapshot.done;
+  state.visionReduced = snapshot.visionReduced;
+  state.pendingVisionReduction = snapshot.pendingVisionReduction;
+  state.cameraShutdownTurns = snapshot.cameraShutdownTurns || 0;
+  state.alertLevel = snapshot.alertLevel;
+  state.alertDecayTimer = snapshot.alertDecayTimer || 0;
+  state.soundSources = snapshot.soundSources.map(s => ({ ...s, position: { ...s.position } }));
+
+  state.level.walls = [...snapshot.level.walls];
+  state.level.doors = snapshot.level.doors.map(d => ({ ...d }));
+  state.level.keys = snapshot.level.keys.map(k => ({ ...k }));
+  state.level.exhibits = snapshot.level.exhibits.map(e => ({ ...e }));
+  state.level.guards = snapshot.level.guards.map(g => ({
+    path: g.path.map(p => ({ ...p })),
+    step: g.step,
+    pos: { ...g.pos },
+    behavior: g.behavior,
+    direction: g.direction,
+    originalPath: g.originalPath.map(p => ({ ...p })),
+    originalStep: g.originalStep,
+    state: g.state,
+    investigateTarget: g.investigateTarget ? { ...g.investigateTarget } : null,
+    investigateTimer: g.investigateTimer,
+    traceTarget: g.traceTarget ? { ...g.traceTarget } : null,
+    tracePath: g.tracePath.map(p => ({ ...p })),
+    alertLevel: g.alertLevel,
+    hearingRange: g.hearingRange,
+    id: g.id
+  }));
+  state.level.openedDoors = snapshot.level.openedDoors ? snapshot.level.openedDoors.map(d => ({ ...d })) : [];
+  state.level.exit = snapshot.level.exit ? { ...snapshot.level.exit } : null;
+  state.level.player = snapshot.level.player ? { ...snapshot.level.player } : null;
+  state.level.name = snapshot.level.name;
+
+  const sm = snapshot.level.mechanisms;
+  const tm = state.level.mechanisms;
+  if (sm && tm) {
+    tm.pressurePlates = sm.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) }));
+    tm.screens = sm.screens.map(s => ({ ...s }));
+    tm.lights = sm.lights.map(l => ({ ...l }));
+    tm.cameras = sm.cameras ? sm.cameras.map(c => ({ ...c })) : [];
+  }
+
+  state.log = [...snapshot.log];
+
+  if (snapshot.gameplayMetrics) {
+    Object.assign(gameplayMetrics, snapshot.gameplayMetrics);
+  }
+}
+
+function undo() {
+  if (!canUndo()) return;
+
+  clearHint();
+
+  state.history.pop();
+
+  const snapshot = state.history[state.history.length - 1];
+  restoreStateFromSnapshot(snapshot);
+
+  addLog(`↶ 撤销了"${snapshot.action}"操作`);
+
+  render();
 }
 
 function freshState(index) {
@@ -1357,11 +1435,23 @@ function bindControls() {
   document.getElementById("downBtn").addEventListener("click", () => move(0, 1));
   document.getElementById("leftBtn").addEventListener("click", () => move(-1, 0));
   document.getElementById("rightBtn").addEventListener("click", () => move(1, 0));
+  const undoBtnTouch = document.getElementById("undoBtnTouch");
+  if (undoBtnTouch) {
+    undoBtnTouch.addEventListener("click", undo);
+  }
   waitBtn.addEventListener("click", endTurn);
   repairBtn.addEventListener("click", repair);
+  if (undoBtn) {
+    undoBtn.addEventListener("click", undo);
+  }
   hintBtn.addEventListener("click", requestHint);
   restartBtn.addEventListener("click", restartLevel);
   window.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+      event.preventDefault();
+      undo();
+      return;
+    }
     const keys = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -2241,6 +2331,13 @@ function render() {
   }
   waitBtn.disabled = state.done;
   repairBtn.disabled = state.done;
+  if (undoBtn) {
+    undoBtn.disabled = !canUndo();
+  }
+  const undoBtnTouch = document.getElementById("undoBtnTouch");
+  if (undoBtnTouch) {
+    undoBtnTouch.disabled = !canUndo();
+  }
   hintBtn.disabled = state.done;
   hintBtn.classList.toggle("hint-btn", !state.done);
   renderBoard();
