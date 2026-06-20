@@ -1030,6 +1030,7 @@ function freshStateFromLevel(levelData) {
 }
 
 function loadCustomLevel(levelData) {
+  clearChallengePackPlayState();
   customLevelSource = JSON.parse(JSON.stringify(levelData));
   autoSaveClear();
   state = freshStateFromLevel(levelData);
@@ -1748,6 +1749,7 @@ function renderLevelButtons() {
 }
 
 function loadLevel(index, preserveMetrics) {
+  clearChallengePackPlayState();
   customLevelSource = null;
   autoSaveClear();
   state = freshState(index);
@@ -3538,6 +3540,7 @@ function saveDailyRecord(dateKey, record) {
 }
 
 function loadDailyChallenge() {
+  clearChallengePackPlayState();
   const dateKey = getDateKey();
   const level = generateDailyLevel(dateKey);
   customLevelSource = JSON.parse(JSON.stringify(level));
@@ -5555,6 +5558,15 @@ let challengePackState = {
   playing: false,
   expandedPackId: null
 };
+
+function clearChallengePackPlayState() {
+  if (!challengePackState) return;
+  challengePackState.playing = false;
+  challengePackState.currentPackId = null;
+  challengePackState.currentLevelIndex = 0;
+  const wrap = document.querySelector(".cp-play-header-wrap");
+  if (wrap) wrap.remove();
+}
 
 function defaultChallengePack() {
   return {
