@@ -184,32 +184,92 @@ const CHAPTER_STAR_KEY = "museum_chapter_stars";
 function loadChapterStars() {
   try {
     const raw = localStorage.getItem(CHAPTER_STAR_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (!data.levels) data.levels = {};
+      return data;
+    }
   } catch (e) {}
-  return { levels: {} };
+  return { levels: {}, version: 2 };
 }
 
 function saveChapterStars(data) {
   try {
+    data.version = 2;
     localStorage.setItem(CHAPTER_STAR_KEY, JSON.stringify(data));
   } catch (e) {}
 }
 
 function getLevelStarData(levelIndex) {
   const data = loadChapterStars();
-  return data.levels[String(levelIndex)] || { bestStars: 0, completed: false };
+  const key = String(levelIndex);
+  const levelData = data.levels[key];
+  if (!levelData) {
+    return { bestStars: 0, completed: false, completedObjectives: [] };
+  }
+  return {
+    bestStars: levelData.bestStars || 0,
+    completed: levelData.completed || false,
+    completedObjectives: levelData.completedObjectives || []
+  };
 }
 
-function updateLevelStarData(levelIndex, stars) {
+function updateLevelStarData(levelIndex, stars, completedObjectives) {
   const data = loadChapterStars();
   const key = String(levelIndex);
-  const existing = data.levels[key];
-  if (!existing || stars > existing.bestStars) {
-    data.levels[key] = { bestStars: stars, completed: true };
-  } else if (!existing.completed) {
-    data.levels[key].completed = true;
+  const existing = data.levels[key] || { bestStars: 0, completed: false, completedObjectives: [] };
+
+  if (!existing.completedObjectives) {
+    existing.completedObjectives = [];
   }
+
+  if (stars > existing.bestStars) {
+    existing.bestStars = stars;
+  }
+  existing.completed = true;
+
+  if (completedObjectives && completedObjectives.length > 0) {
+    const currentSet = new Set(existing.completedObjectives);
+    completedObjectives.forEach(obj => currentSet.add(obj));
+    existing.completedObjectives = Array.from(currentSet);
+  }
+
+  data.levels[key] = existing;
   saveChapterStars(data);
+}
+
+function evaluateObjectives(levelIndex) {
+  const objectives = getLevelObjectives(levelIndex);
+  if (objectives.length === 0) return [];
+
+  const completed = [];
+  const desc = levelDescriptions[levelIndex];
+
+  if (objectives.includes(OBJECTIVE_TYPES.NO_HINTS)) {
+    if (gameplayMetrics.hintsUsedTotal === 0) {
+      completed.push(OBJECTIVE_TYPES.NO_HINTS);
+    }
+  }
+
+  if (objectives.includes(OBJECTIVE_TYPES.WITHIN_STEPS)) {
+    if (desc && gameplayMetrics.currentActions <= desc.optimalActions) {
+      completed.push(OBJECTIVE_TYPES.WITHIN_STEPS);
+    }
+  }
+
+  if (objectives.includes(OBJECTIVE_TYPES.NO_ALERT)) {
+    if (gameplayMetrics.maxAlertLevel === 0) {
+      completed.push(OBJECTIVE_TYPES.NO_ALERT);
+    }
+  }
+
+  if (objectives.includes(OBJECTIVE_TYPES.ALL_KEYS)) {
+    if (gameplayMetrics.totalKeysInLevel > 0 && gameplayMetrics.keysCollected >= gameplayMetrics.totalKeysInLevel) {
+      completed.push(OBJECTIVE_TYPES.ALL_KEYS);
+    }
+  }
+
+  return completed;
 }
 
 function calculateStars(levelIndex, currentActions, hasRetried, hintsUsedTotal) {
@@ -388,16 +448,91 @@ const REPLAY_SPEEDS = {
   fast: 350
 };
 
+const OBJECTIVE_TYPES = {
+  NO_HINTS: "no_hints",
+  WITHIN_STEPS: "within_steps",
+  NO_ALERT: "no_alert",
+  ALL_KEYS: "all_keys"
+};
+
+const OBJECTIVE_DEFS = {
+  [OBJECTIVE_TYPES.NO_HINTS]: {
+    name: "不使用提示",
+    icon: "💡",
+    desc: "全程不使用任何提示"
+  },
+  [OBJECTIVE_TYPES.WITHIN_STEPS]: {
+    name: "推荐步数内",
+    icon: "👣",
+    desc: "在推荐步数内完成关卡"
+  },
+  [OBJECTIVE_TYPES.NO_ALERT]: {
+    name: "不触发警戒",
+    icon: "🤫",
+    desc: "全程警觉程度保持平静"
+  },
+  [OBJECTIVE_TYPES.ALL_KEYS]: {
+    name: "收集所有钥匙",
+    icon: "🔑",
+    desc: "拾取关卡中所有钥匙"
+  }
+};
+
+const levelObjectives = [
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.NO_ALERT, OBJECTIVE_TYPES.WITHIN_STEPS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.NO_ALERT, OBJECTIVE_TYPES.ALL_KEYS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS, OBJECTIVE_TYPES.NO_ALERT]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS, OBJECTIVE_TYPES.ALL_KEYS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS, OBJECTIVE_TYPES.NO_ALERT, OBJECTIVE_TYPES.ALL_KEYS]
+  }
+];
+
+function getLevelObjectives(levelIndex) {
+  const config = levelObjectives[levelIndex];
+  if (!config || !config.objectives) return [];
+  return config.objectives;
+}
+
+function hasLevelObjectives(levelIndex) {
+  return getLevelObjectives(levelIndex).length > 0;
+}
+
 let gameplayMetrics = {
   hasRetried: false,
   hintsUsedTotal: 0,
-  currentActions: 0
+  currentActions: 0,
+  maxAlertLevel: 0,
+  keysCollected: 0,
+  totalKeysInLevel: 0
 };
 
 function resetGameplayMetrics() {
   gameplayMetrics.hasRetried = false;
   gameplayMetrics.hintsUsedTotal = 0;
   gameplayMetrics.currentActions = 0;
+  gameplayMetrics.maxAlertLevel = 0;
+  gameplayMetrics.keysCollected = 0;
+  gameplayMetrics.totalKeysInLevel = 0;
+}
+
+function initObjectiveTracking() {
+  if (state && state.level && state.level.keys) {
+    gameplayMetrics.totalKeysInLevel = state.level.keys.length;
+  }
+  gameplayMetrics.maxAlertLevel = state ? state.alertLevel || 0 : 0;
+  gameplayMetrics.keysCollected = 0;
 }
 
 function cloneLevel(index) {
@@ -795,6 +930,19 @@ function renderChapterView() {
     const totalStars = ch.levelIndices.reduce((sum, idx) => sum + getLevelStarData(idx).bestStars, 0);
     const maxStars = ch.levelIndices.length * 3;
 
+    let totalObjectives = 0;
+    let completedObjectives = 0;
+    ch.levelIndices.forEach(idx => {
+      const levelObj = getLevelObjectives(idx);
+      const starData = getLevelStarData(idx);
+      totalObjectives += levelObj.length;
+      levelObj.forEach(objType => {
+        if (starData.completedObjectives.includes(objType)) {
+          completedObjectives += 1;
+        }
+      });
+    });
+
     let statusText = "";
     if (!unlocked) {
       statusText = "🔒 未解锁";
@@ -811,7 +959,10 @@ function renderChapterView() {
         <div class="chapter-card-title">第${ch.id + 1}章：${ch.name}</div>
         <div class="chapter-card-desc">${ch.description}</div>
       </div>
-      <div class="chapter-card-status">${statusText}</div>
+      <div class="chapter-card-status">
+        <div>${statusText}</div>
+        ${totalObjectives > 0 ? `<div class="chapter-objective-count">🎯 ${completedObjectives}/${totalObjectives}</div>` : ""}
+      </div>
     `;
     card.appendChild(headerDiv);
 
@@ -822,6 +973,7 @@ function renderChapterView() {
       const levelUnlocked = isLevelUnlocked(idx);
       const starData = getLevelStarData(idx);
       const desc = levelDescriptions[idx];
+      const levelObj = getLevelObjectives(idx);
       const levelCard = document.createElement("div");
       levelCard.className = `chapter-level-card ${levelUnlocked ? "unlocked" : "locked"} ${state.levelIndex === idx ? "active-level" : ""}`;
 
@@ -836,6 +988,16 @@ function renderChapterView() {
         }
       }
 
+      let objectivesHtml = "";
+      if (levelUnlocked && levelObj.length > 0) {
+        const objIcons = levelObj.map(objType => {
+          const def = OBJECTIVE_DEFS[objType];
+          const isCompleted = starData.completedObjectives.includes(objType);
+          return `<span class="level-objective-icon ${isCompleted ? "completed" : "incomplete"}" title="${def.name}：${def.desc}">${def.icon}</span>`;
+        }).join("");
+        objectivesHtml = `<div class="level-objectives">${objIcons}</div>`;
+      }
+
       levelCard.innerHTML = `
         <div class="chapter-level-name">关卡${levels[idx].name}</div>
         <div class="chapter-level-brief">${desc ? desc.brief : ""}</div>
@@ -843,6 +1005,7 @@ function renderChapterView() {
           ? `<div class="chapter-level-stars">${starsHtml}</div>`
           : `<div class="chapter-level-lock">🔒 需通关上一关</div>`
         }
+        ${objectivesHtml}
       `;
 
       if (levelUnlocked) {
@@ -938,6 +1101,9 @@ function updateGlobalAlertLevel() {
     maxAlert = Math.max(maxAlert, guard.alertLevel);
   });
   state.alertLevel = maxAlert;
+  if (maxAlert > gameplayMetrics.maxAlertLevel) {
+    gameplayMetrics.maxAlertLevel = maxAlert;
+  }
 }
 
 function decayAlertLevels() {
@@ -1192,8 +1358,12 @@ function loadLevel(index, preserveMetrics) {
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
   toggleBackToEditorBtn(false);
-  if (!preserveMetrics) resetGameplayMetrics();
-  else gameplayMetrics.currentActions = 0;
+  if (!preserveMetrics) {
+    resetGameplayMetrics();
+    initObjectiveTracking();
+  } else {
+    gameplayMetrics.currentActions = 0;
+  }
   recordHistory("开局");
   render();
 }
@@ -1454,6 +1624,7 @@ function pickKey() {
   if (key) {
     key.taken = true;
     state.keys += 1;
+    gameplayMetrics.keysCollected += 1;
     addLog("捡到一枚展柜侧门钥匙。");
   }
 }
@@ -1550,7 +1721,11 @@ function win() {
     const stars = calculateStars(state.levelIndex, gameplayMetrics.currentActions, gameplayMetrics.hasRetried, gameplayMetrics.hintsUsedTotal);
     const prevData = getLevelStarData(state.levelIndex);
     const isNewBest = stars > prevData.bestStars;
-    updateLevelStarData(state.levelIndex, stars);
+
+    const levelObj = getLevelObjectives(state.levelIndex);
+    const completedObj = evaluateObjectives(state.levelIndex);
+    const newObjectives = completedObj.filter(obj => !prevData.completedObjectives.includes(obj));
+    updateLevelStarData(state.levelIndex, stars, completedObj);
 
     const nextIdx = getNextLevelIndex(state.levelIndex);
     let nextLevelHtml = "";
@@ -1563,6 +1738,33 @@ function win() {
     const starDisplay = renderStars(stars);
     const bestStarDisplay = isNewBest ? `<span class="star-new-best">新纪录！</span>` : `<span class="star-prev-best">历史最佳：${renderStars(prevData.bestStars)}</span>`;
 
+    let objectivesHtml = "";
+    if (levelObj.length > 0) {
+      const objItems = levelObj.map(objType => {
+        const def = OBJECTIVE_DEFS[objType];
+        const isCompleted = completedObj.includes(objType);
+        const isNew = newObjectives.includes(objType);
+        const statusClass = isCompleted ? "completed" : "failed";
+        const newBadge = isNew ? '<span class="objective-new">新达成！</span>' : "";
+        return `
+          <div class="objective-item ${statusClass}">
+            <span class="objective-icon">${def.icon}</span>
+            <span class="objective-name">${def.name}</span>
+            <span class="objective-status">${isCompleted ? "✓ 完成" : "✗ 未完成"}</span>
+            ${newBadge}
+          </div>
+        `;
+      }).join("");
+      objectivesHtml = `
+        <div class="objectives-section">
+          <h3>🎯 展厅目标</h3>
+          <div class="objectives-list">
+            ${objItems}
+          </div>
+        </div>
+      `;
+    }
+
     resultEl.innerHTML = `
       <h2>本关修复完成</h2>
       <div class="star-rating">
@@ -1574,6 +1776,7 @@ function win() {
         <p>${gameplayMetrics.hasRetried ? "⚠️ 有重试记录" : "✓ 无重试"}</p>
         <p>使用提示：${gameplayMetrics.hintsUsedTotal}次</p>
       </div>
+      ${objectivesHtml}
       <p>所有展品复位，并从指定出口离开。</p>
       ${nextLevelHtml}
       <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
@@ -3397,7 +3600,10 @@ const ACHIEVEMENT_DEFS = [
   { id: "no_wait_all", name: "风驰电掣", desc: "在所有正式关卡无等待通关", icon: "🌪️" },
   { id: "min_keys", name: "节俭达人", desc: "累计使用钥匙不超过 5 次通关 3 个关卡", icon: "🔑" },
   { id: "survivor", name: "越挫越勇", desc: "累计失败 10 次后仍成功通关", icon: "💪" },
-  { id: "master", name: "博物馆大师", desc: "每个正式关卡都达成最少回合通关", icon: "👑" }
+  { id: "master", name: "博物馆大师", desc: "每个正式关卡都达成最少回合通关", icon: "👑" },
+  { id: "first_objective", name: "目标达成", desc: "首次完成任意展厅目标", icon: "🎯" },
+  { id: "all_objectives_one", name: "全目标达人", desc: "在单个关卡完成所有展厅目标", icon: "⭐" },
+  { id: "all_objectives_all", name: "完美展厅", desc: "在所有正式关卡完成所有展厅目标", icon: "🏅" }
 ];
 
 const FAILURE_REASONS = {
@@ -3417,6 +3623,7 @@ function defaultAchievementData() {
       totalKeysUsed: 0,
       totalActions: 0,
       totalTurns: 0,
+      totalObjectivesCompleted: 0,
       failureReasons: { guard_sight: 0, guard_turn: 0, other: 0 }
     },
     achievements: {}
@@ -3429,9 +3636,28 @@ function loadAchievements() {
     if (raw) {
       const data = JSON.parse(raw);
       const def = defaultAchievementData();
+      const levels = {};
+      if (data.levels) {
+        Object.keys(data.levels).forEach(key => {
+          const l = data.levels[key];
+          levels[key] = {
+            bestTurns: l.bestTurns !== undefined ? l.bestTurns : null,
+            bestActions: l.bestActions !== undefined ? l.bestActions : null,
+            totalKeysUsed: l.totalKeysUsed || 0,
+            wins: l.wins || 0,
+            noWait: l.noWait || false,
+            completedObjectives: l.completedObjectives || []
+          };
+        });
+      }
       return {
-        levels: data.levels || def.levels,
-        overall: { ...def.overall, ...(data.overall || {}), failureReasons: { ...def.overall.failureReasons, ...((data.overall || {}).failureReasons || {}) } },
+        levels,
+        overall: {
+          ...def.overall,
+          ...(data.overall || {}),
+          failureReasons: { ...def.overall.failureReasons, ...((data.overall || {}).failureReasons || {}) },
+          totalObjectivesCompleted: (data.overall && data.overall.totalObjectivesCompleted) || 0
+        },
         achievements: data.achievements || def.achievements
       };
     }
@@ -3502,7 +3728,8 @@ function updateStatsOnWin(levelIndex) {
       bestActions: null,
       totalKeysUsed: 0,
       wins: 0,
-      noWait: false
+      noWait: false,
+      completedObjectives: []
     };
   }
 
@@ -3520,10 +3747,18 @@ function updateStatsOnWin(levelIndex) {
     ls.noWait = true;
   }
 
+  const completedObj = evaluateObjectives(levelIndex);
+  const prevObjCount = ls.completedObjectives.length;
+  const objSet = new Set(ls.completedObjectives);
+  completedObj.forEach(obj => objSet.add(obj));
+  ls.completedObjectives = Array.from(objSet);
+  const newObjCount = ls.completedObjectives.length - prevObjCount;
+
   achievementState.overall.totalWins += 1;
   achievementState.overall.totalKeysUsed += stats.keysUsed;
   achievementState.overall.totalActions += stats.actions;
   achievementState.overall.totalTurns += stats.turns;
+  achievementState.overall.totalObjectivesCompleted += newObjCount;
 
   checkAchievements();
   saveAchievements();
@@ -3583,6 +3818,27 @@ function checkAchievements() {
     return ls && ls.bestTurns !== null && ls.wins >= 1;
   });
   if (allBestTurns) unlock("master");
+
+  const totalObjectives = achievementState.overall.totalObjectivesCompleted;
+  if (totalObjectives >= 1) unlock("first_objective");
+
+  const anyAllObjectives = levels.some((_, i) => {
+    const levelObj = getLevelObjectives(i);
+    if (levelObj.length === 0) return false;
+    const ls = achievementState.levels[String(i)];
+    if (!ls || !ls.completedObjectives) return false;
+    return levelObj.every(obj => ls.completedObjectives.includes(obj));
+  });
+  if (anyAllObjectives) unlock("all_objectives_one");
+
+  const allAllObjectives = levels.length > 0 && levels.every((_, i) => {
+    const levelObj = getLevelObjectives(i);
+    if (levelObj.length === 0) return true;
+    const ls = achievementState.levels[String(i)];
+    if (!ls || !ls.completedObjectives) return false;
+    return levelObj.every(obj => ls.completedObjectives.includes(obj));
+  });
+  if (allAllObjectives) unlock("all_objectives_all");
 }
 
 function openAchievement() {
@@ -3607,15 +3863,40 @@ function renderLevelStats() {
   levels.forEach((level, index) => {
     const key = String(index);
     const ls = achievementState.levels[key];
+    const levelObj = getLevelObjectives(index);
     const card = document.createElement("div");
     card.className = "level-stat-card";
 
     if (!ls || ls.wins === 0) {
+      let objectivesHtml = "";
+      if (levelObj.length > 0) {
+        const objItems = levelObj.map(objType => {
+          const def = OBJECTIVE_DEFS[objType];
+          return `<span class="stat-objective incomplete" title="${def.desc}">${def.icon} ${def.name}</span>`;
+        }).join("");
+        objectivesHtml = `<div class="stat-objectives">${objItems}</div>`;
+      }
       card.innerHTML = `
         <h4>关卡${level.name}</h4>
         <p class="not-played">尚未通关</p>
+        ${objectivesHtml}
       `;
     } else {
+      let objectivesHtml = "";
+      if (levelObj.length > 0) {
+        const completedCount = ls.completedObjectives ? ls.completedObjectives.length : 0;
+        const objItems = levelObj.map(objType => {
+          const def = OBJECTIVE_DEFS[objType];
+          const isCompleted = ls.completedObjectives && ls.completedObjectives.includes(objType);
+          return `<span class="stat-objective ${isCompleted ? 'completed' : 'incomplete'}" title="${def.desc}">${def.icon} ${def.name}</span>`;
+        }).join("");
+        objectivesHtml = `
+          <div class="stat-objectives-header">
+            展厅目标：<strong>${completedCount}/${levelObj.length}</strong>
+          </div>
+          <div class="stat-objectives">${objItems}</div>
+        `;
+      }
       card.innerHTML = `
         <h4>关卡${level.name}</h4>
         <p>通关次数：<strong>${ls.wins}</strong></p>
@@ -3623,6 +3904,7 @@ function renderLevelStats() {
         <p>最少行动：<strong>${ls.bestActions}</strong></p>
         <p>累计使用钥匙：<strong>${ls.totalKeysUsed}</strong></p>
         <p>${ls.noWait ? '<span class="no-wait">✓ 无等待通关记录</span>' : '无等待通关：未达成'}</p>
+        ${objectivesHtml}
       `;
     }
     achievementLevelStatsEl.appendChild(card);
@@ -3635,6 +3917,11 @@ function renderOverallStats() {
   const winRate = o.totalWins + o.totalFailures > 0
     ? Math.round((o.totalWins / (o.totalWins + o.totalFailures)) * 100)
     : 0;
+
+  let totalLevelObjectives = 0;
+  levels.forEach((_, i) => {
+    totalLevelObjectives += getLevelObjectives(i).length;
+  });
 
   achievementOverallEl.innerHTML = `
     <div class="overall-stat-card">
@@ -3649,6 +3936,10 @@ function renderOverallStats() {
       <span class="stat-label">总失败次数</span>
       <span class="stat-value">${o.totalFailures}</span>
       <span class="stat-sub">胜率 ${winRate}%</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">展厅目标完成</span>
+      <span class="stat-value">${o.totalObjectivesCompleted}/${totalLevelObjectives}</span>
     </div>
     <div class="overall-stat-card">
       <span class="stat-label">累计行动数</span>

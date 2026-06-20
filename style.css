@@ -1690,6 +1690,165 @@ h2 {
   margin-top: 12px;
 }
 
+.objectives-section {
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: #201b20;
+  border: 1px solid #514956;
+  border-radius: 8px;
+}
+
+.objectives-section h3 {
+  margin: 0 0 10px 0;
+  color: #d7bd77;
+  font-size: 15px;
+}
+
+.objectives-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.objective-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: #2c2730;
+  border-radius: 6px;
+  border: 1px solid #3c3642;
+  position: relative;
+}
+
+.objective-item.completed {
+  border-color: #2ecc71;
+  background: rgba(46, 204, 113, 0.1);
+}
+
+.objective-item.failed {
+  border-color: #5a5260;
+  opacity: 0.7;
+}
+
+.objective-icon {
+  font-size: 18px;
+}
+
+.objective-name {
+  flex: 1;
+  font-size: 14px;
+  color: #cec4ba;
+}
+
+.objective-item.completed .objective-name {
+  color: #2ecc71;
+  font-weight: bold;
+}
+
+.objective-status {
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.objective-item.completed .objective-status {
+  color: #2ecc71;
+}
+
+.objective-item.failed .objective-status {
+  color: #7a7280;
+}
+
+.objective-new {
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  padding: 2px 8px;
+  background: #d7bd77;
+  color: #201b20;
+  font-size: 11px;
+  font-weight: bold;
+  border-radius: 10px;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.chapter-objective-count {
+  font-size: 12px;
+  color: #d7bd77;
+  margin-top: 4px;
+  text-align: right;
+}
+
+.level-objectives {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.level-objective-icon {
+  font-size: 16px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #201b20;
+  border-radius: 4px;
+  border: 1px solid #3c3642;
+}
+
+.level-objective-icon.completed {
+  border-color: #2ecc71;
+  background: rgba(46, 204, 113, 0.15);
+}
+
+.level-objective-icon.incomplete {
+  opacity: 0.4;
+}
+
+.stat-objectives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.stat-objective {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: #201b20;
+  border: 1px solid #3c3642;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #7a7280;
+}
+
+.stat-objective.completed {
+  border-color: #2ecc71;
+  color: #2ecc71;
+  background: rgba(46, 204, 113, 0.1);
+}
+
+.stat-objectives-header {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #3c3642;
+  font-size: 13px;
+  color: #cec4ba;
+}
+
+.stat-objectives-header strong {
+  color: #d7bd77;
+}
+
 .editor-diagnosis {
   margin-top: 14px;
   padding: 12px;
