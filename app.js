@@ -15,6 +15,33 @@ const GUARD_BEHAVIOR = {
   TRACE: "trace"
 };
 
+const CAMERA_DIRECTION = {
+  UP: "up",
+  DOWN: "down",
+  LEFT: "left",
+  RIGHT: "right"
+};
+
+function cameraDirToVector(direction) {
+  switch (direction) {
+    case CAMERA_DIRECTION.UP: return { dx: 0, dy: -1 };
+    case CAMERA_DIRECTION.DOWN: return { dx: 0, dy: 1 };
+    case CAMERA_DIRECTION.LEFT: return { dx: -1, dy: 0 };
+    case CAMERA_DIRECTION.RIGHT: return { dx: 1, dy: 0 };
+    default: return { dx: 1, dy: 0 };
+  }
+}
+
+function getCameraDirectionLabel(direction) {
+  switch (direction) {
+    case CAMERA_DIRECTION.UP: return "↑";
+    case CAMERA_DIRECTION.DOWN: return "↓";
+    case CAMERA_DIRECTION.LEFT: return "←";
+    case CAMERA_DIRECTION.RIGHT: return "→";
+    default: return "→";
+  }
+}
+
 const ALERT_LEVEL = {
   CALM: { name: "平静", value: 0, color: "#4f7f6a" },
   CURIOUS: { name: "警觉", value: 1, color: "#d7bd77" },
@@ -25,6 +52,7 @@ const waitBtn = document.getElementById("waitBtn");
 const repairBtn = document.getElementById("repairBtn");
 const hintBtn = document.getElementById("hintBtn");
 const restartBtn = document.getElementById("restartBtn");
+const undoBtn = document.getElementById("undoBtn");
 const tutorialBtn = document.getElementById("tutorialBtn");
 const dailyBtn = document.getElementById("dailyBtn");
 const achievementBtn = document.getElementById("achievementBtn");
@@ -51,6 +79,14 @@ const replayTotalEl = document.getElementById("replayTotal");
 const replayLogEl = document.getElementById("replayLog");
 const replayActionEl = document.getElementById("replayAction");
 const replayProgressEl = document.getElementById("replayProgress");
+const replaySpeedSlowBtn = document.getElementById("replaySpeedSlow");
+const replaySpeedNormalBtn = document.getElementById("replaySpeedNormal");
+const replaySpeedFastBtn = document.getElementById("replaySpeedFast");
+const replayJumpFixBtn = document.getElementById("replayJumpFix");
+const replayJumpDoorBtn = document.getElementById("replayJumpDoor");
+const replayJumpKeyBtn = document.getElementById("replayJumpKey");
+const replayJumpSeenBtn = document.getElementById("replayJumpSeen");
+const replayJumpWinBtn = document.getElementById("replayJumpWin");
 
 const levels = [
   {
@@ -138,6 +174,28 @@ const levels = [
       { path: [{ x: 6, y: 0 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 0 }], step: 0, behavior: "trace", hearingRange: 4 }
     ],
     exit: { x: 7, y: 6 }
+  },
+  {
+    name: "七",
+    walls: ["3,1", "3,2", "3,5", "3,6", "6,0", "6,1", "6,5", "6,6"],
+    doors: [{ x: 3, y: 3, open: false }],
+    keys: [{ x: 0, y: 0 }],
+    exhibits: [{ x: 7, y: 3, fixed: false }],
+    player: { x: 0, y: 6 },
+    guards: [
+      { path: [{ x: 4, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 1 }, { x: 4, y: 1 }], step: 0, behavior: "fixed", hearingRange: 3 },
+      { path: [{ x: 4, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 6 }, { x: 4, y: 6 }], step: 0, behavior: "investigate", hearingRange: 4 }
+    ],
+    exit: { x: 7, y: 0 },
+    mechanisms: {
+      pressurePlates: [{ x: 1, y: 3, targetDoors: [{ x: 3, y: 3 }], triggered: false }],
+      screens: [{ x: 4, y: 3 }],
+      lights: [{ x: 1, y: 0, active: false }],
+      cameras: [
+        { x: 2, y: 3, direction: "right", disabled: false },
+        { x: 5, y: 2, direction: "left", disabled: false }
+      ]
+    }
   }
 ];
 
@@ -159,6 +217,12 @@ const chapters = [
     name: "行为编排",
     description: "遭遇拥有复杂行为模式的巡逻员",
     levelIndices: [4, 5]
+  },
+  {
+    id: 3,
+    name: "安保警戒",
+    description: "遭遇安保摄像头，学会利用熄灯开关与屏风",
+    levelIndices: [6]
   }
 ];
 
@@ -168,40 +232,257 @@ const levelDescriptions = [
   { brief: "两个展柜与会调查声响的巡逻员", optimalActions: 24 },
   { brief: "利用压力板开门，小心会追踪开门痕迹的守卫", optimalActions: 18 },
   { brief: "两个展柜、多个门锁，巡逻员会调查声响并追踪痕迹", optimalActions: 32 },
-  { brief: "三个巡逻员的终极挑战：往返巡逻、听觉调查、痕迹追踪", optimalActions: 38 }
+  { brief: "三个巡逻员的终极挑战：往返巡逻、听觉调查、痕迹追踪", optimalActions: 38 },
+  { brief: "安保摄像头守护展柜，利用熄灯开关和屏风绕过监视", optimalActions: 28 }
 ];
+
+const AUTOSAVE_KEY = "museum_autosave_v1";
+
+function autoSave() {
+  if (!state || state.done) {
+    autoSaveClear();
+    return;
+  }
+  if (state.levelIndex === -2) return;
+  if (!state.history || state.history.length <= 1) return;
+  try {
+    const data = {
+      version: 1,
+      timestamp: Date.now(),
+      levelIndex: state.levelIndex,
+      customLevelSource: customLevelSource,
+      state: snapshotState("autosave"),
+      history: state.history.map(h => JSON.parse(JSON.stringify(h))),
+      tutorialState: {
+        active: tutorialState.active,
+        currentStep: tutorialState.currentStep,
+        hasWaited: tutorialState.hasWaited,
+        wrongAttempts: tutorialState.wrongAttempts
+      },
+      hintState: {
+        active: hintState.active,
+        path: hintState.path.map(p => ({ ...p })),
+        actionLabels: [...hintState.actionLabels]
+      },
+      gameplayMetrics: { ...gameplayMetrics }
+    };
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function autoSaveClear() {
+  try {
+    localStorage.removeItem(AUTOSAVE_KEY);
+  } catch (e) {}
+}
+
+function autoSaveLoad() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.version !== 1 || !data.state) {
+      autoSaveClear();
+      return null;
+    }
+    return data;
+  } catch (e) {
+    autoSaveClear();
+    return null;
+  }
+}
+
+function getAutosaveDescription(data) {
+  if (!data) return "";
+  const li = data.levelIndex;
+  const name = data.state.level ? data.state.level.name : "";
+  if (li === -3) return "每日挑战 — " + name;
+  if (li === -1) return "自定义试玩 — " + name;
+  if (li >= 0) return "关卡" + name;
+  return name;
+}
+
+function getAutosaveTimeDesc(data) {
+  if (!data || !data.timestamp) return "";
+  const diff = Date.now() - data.timestamp;
+  if (diff < 60000) return "刚刚";
+  if (diff < 3600000) return Math.floor(diff / 60000) + "分钟前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + "小时前";
+  return Math.floor(diff / 86400000) + "天前";
+}
+
+function restoreFromAutosave(data) {
+  if (!data || !data.state) return false;
+  try {
+    const snap = data.state;
+    if (data.levelIndex === -1 || data.levelIndex === -3) {
+      if (!data.customLevelSource) return false;
+      customLevelSource = JSON.parse(JSON.stringify(data.customLevelSource));
+      state = freshStateFromLevel(customLevelSource);
+      if (data.levelIndex === -3) state.levelIndex = -3;
+    } else if (data.levelIndex >= 0) {
+      state = freshState(data.levelIndex);
+    } else {
+      return false;
+    }
+    restoreStateFromSnapshot(snap);
+    state.history = data.history ? data.history.map(h => JSON.parse(JSON.stringify(h))) : [];
+    if (data.gameplayMetrics) {
+      Object.assign(gameplayMetrics, data.gameplayMetrics);
+    }
+    if (data.hintState) {
+      hintState.active = data.hintState.active;
+      hintState.path = data.hintState.path.map(p => ({ ...p }));
+      hintState.actionLabels = [...data.hintState.actionLabels];
+    }
+    resultEl.classList.add("hidden");
+    resultEl.classList.remove("daily-result-style");
+    tutorialState.active = false;
+    tutorialHintEl.classList.add("hidden");
+    tutorialBtn.classList.remove("active");
+    if (data.levelIndex === -1) {
+      toggleBackToEditorBtn(true);
+    } else {
+      toggleBackToEditorBtn(false);
+    }
+    render();
+    if (data.levelIndex === -3) {
+      renderDailyInfo();
+      dailyBtn.classList.add("active");
+    }
+    autoSave();
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function showAutosaveRestoreDialog(data) {
+  const overlay = document.getElementById("autosaveOverlay");
+  if (!overlay) return;
+  const desc = getAutosaveDescription(data);
+  const time = getAutosaveTimeDesc(data);
+  const actions = data.state.level && data.state.level.exhibits
+    ? data.state.level.exhibits.filter(e => e.fixed).length + "/" + data.state.level.exhibits.length
+    : "-";
+  const alertNames = ["平静", "警觉", "怀疑", "警戒"];
+  const alertName = alertNames[data.state.alertLevel] || "平静";
+  document.getElementById("autosaveInfo").innerHTML =
+    `<div class="autosave-detail"><span class="autosave-label">进度</span><span class="autosave-value">${desc}</span></div>` +
+    `<div class="autosave-detail"><span class="autosave-label">修复</span><span class="autosave-value">${actions}</span></div>` +
+    `<div class="autosave-detail"><span class="autosave-label">警觉</span><span class="autosave-value">${alertName}</span></div>` +
+    `<div class="autosave-detail"><span class="autosave-label">保存时间</span><span class="autosave-value">${time}</span></div>`;
+  overlay.classList.remove("hidden");
+}
+
+function dismissAutosaveDialog() {
+  const overlay = document.getElementById("autosaveOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  autoSaveClear();
+}
+
+function acceptAutosaveRestore() {
+  const overlay = document.getElementById("autosaveOverlay");
+  if (overlay) overlay.classList.add("hidden");
+  const data = autoSaveLoad();
+  if (data) {
+    if (!restoreFromAutosave(data)) {
+      autoSaveClear();
+    }
+  }
+}
 
 const CHAPTER_STAR_KEY = "museum_chapter_stars";
 
 function loadChapterStars() {
   try {
     const raw = localStorage.getItem(CHAPTER_STAR_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (!data.levels) data.levels = {};
+      return data;
+    }
   } catch (e) {}
-  return { levels: {} };
+  return { levels: {}, version: 2 };
 }
 
 function saveChapterStars(data) {
   try {
+    data.version = 2;
     localStorage.setItem(CHAPTER_STAR_KEY, JSON.stringify(data));
   } catch (e) {}
 }
 
 function getLevelStarData(levelIndex) {
   const data = loadChapterStars();
-  return data.levels[String(levelIndex)] || { bestStars: 0, completed: false };
+  const key = String(levelIndex);
+  const levelData = data.levels[key];
+  if (!levelData) {
+    return { bestStars: 0, completed: false, completedObjectives: [] };
+  }
+  return {
+    bestStars: levelData.bestStars || 0,
+    completed: levelData.completed || false,
+    completedObjectives: levelData.completedObjectives || []
+  };
 }
 
-function updateLevelStarData(levelIndex, stars) {
+function updateLevelStarData(levelIndex, stars, completedObjectives) {
   const data = loadChapterStars();
   const key = String(levelIndex);
-  const existing = data.levels[key];
-  if (!existing || stars > existing.bestStars) {
-    data.levels[key] = { bestStars: stars, completed: true };
-  } else if (!existing.completed) {
-    data.levels[key].completed = true;
+  const existing = data.levels[key] || { bestStars: 0, completed: false, completedObjectives: [] };
+
+  if (!existing.completedObjectives) {
+    existing.completedObjectives = [];
   }
+
+  if (stars > existing.bestStars) {
+    existing.bestStars = stars;
+  }
+  existing.completed = true;
+
+  if (completedObjectives && completedObjectives.length > 0) {
+    const currentSet = new Set(existing.completedObjectives);
+    completedObjectives.forEach(obj => currentSet.add(obj));
+    existing.completedObjectives = Array.from(currentSet);
+  }
+
+  data.levels[key] = existing;
   saveChapterStars(data);
+}
+
+function evaluateObjectives(levelIndex) {
+  const objectives = getLevelObjectives(levelIndex);
+  if (objectives.length === 0) return [];
+
+  const completed = [];
+  const desc = levelDescriptions[levelIndex];
+
+  if (objectives.includes(OBJECTIVE_TYPES.NO_HINTS)) {
+    if (gameplayMetrics.objectiveHintsUsed === 0) {
+      completed.push(OBJECTIVE_TYPES.NO_HINTS);
+    }
+  }
+
+  if (objectives.includes(OBJECTIVE_TYPES.WITHIN_STEPS)) {
+    if (desc && gameplayMetrics.currentActions <= desc.optimalActions) {
+      completed.push(OBJECTIVE_TYPES.WITHIN_STEPS);
+    }
+  }
+
+  if (objectives.includes(OBJECTIVE_TYPES.NO_ALERT)) {
+    if (gameplayMetrics.objectiveMaxAlertLevel === 0) {
+      completed.push(OBJECTIVE_TYPES.NO_ALERT);
+    }
+  }
+
+  if (objectives.includes(OBJECTIVE_TYPES.ALL_KEYS)) {
+    if (gameplayMetrics.totalKeysInLevel > 0 && gameplayMetrics.objectiveKeysCollected >= gameplayMetrics.totalKeysInLevel) {
+      completed.push(OBJECTIVE_TYPES.ALL_KEYS);
+    }
+  }
+
+  return completed;
 }
 
 function calculateStars(levelIndex, currentActions, hasRetried, hintsUsedTotal) {
@@ -363,19 +644,114 @@ let replayState = {
   currentStep: 0,
   isPlaying: false,
   playInterval: null,
-  playSpeed: 1000
+  playSpeed: 1000,
+  speedLevel: "normal",
+  keySteps: {
+    fix: -1,
+    door: -1,
+    key: -1,
+    seen: -1,
+    win: -1
+  }
 };
+
+const REPLAY_SPEEDS = {
+  slow: 2000,
+  normal: 1000,
+  fast: 350
+};
+
+const OBJECTIVE_TYPES = {
+  NO_HINTS: "no_hints",
+  WITHIN_STEPS: "within_steps",
+  NO_ALERT: "no_alert",
+  ALL_KEYS: "all_keys"
+};
+
+const OBJECTIVE_DEFS = {
+  [OBJECTIVE_TYPES.NO_HINTS]: {
+    name: "不使用提示",
+    icon: "💡",
+    desc: "全程不使用任何提示"
+  },
+  [OBJECTIVE_TYPES.WITHIN_STEPS]: {
+    name: "推荐步数内",
+    icon: "👣",
+    desc: "在推荐步数内完成关卡"
+  },
+  [OBJECTIVE_TYPES.NO_ALERT]: {
+    name: "不触发警戒",
+    icon: "🤫",
+    desc: "全程警觉程度保持平静"
+  },
+  [OBJECTIVE_TYPES.ALL_KEYS]: {
+    name: "收集所有钥匙",
+    icon: "🔑",
+    desc: "拾取关卡中所有钥匙"
+  }
+};
+
+const levelObjectives = [
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.NO_ALERT, OBJECTIVE_TYPES.WITHIN_STEPS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.NO_ALERT, OBJECTIVE_TYPES.ALL_KEYS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS, OBJECTIVE_TYPES.NO_ALERT]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS, OBJECTIVE_TYPES.ALL_KEYS]
+  },
+  {
+    objectives: [OBJECTIVE_TYPES.NO_HINTS, OBJECTIVE_TYPES.WITHIN_STEPS, OBJECTIVE_TYPES.NO_ALERT, OBJECTIVE_TYPES.ALL_KEYS]
+  }
+];
+
+function getLevelObjectives(levelIndex) {
+  const config = levelObjectives[levelIndex];
+  if (!config || !config.objectives) return [];
+  return config.objectives;
+}
+
+function hasLevelObjectives(levelIndex) {
+  return getLevelObjectives(levelIndex).length > 0;
+}
 
 let gameplayMetrics = {
   hasRetried: false,
   hintsUsedTotal: 0,
-  currentActions: 0
+  currentActions: 0,
+  maxAlertLevel: 0,
+  objectiveHintsUsed: 0,
+  objectiveMaxAlertLevel: 0,
+  objectiveKeysCollected: 0,
+  totalKeysInLevel: 0
 };
 
 function resetGameplayMetrics() {
   gameplayMetrics.hasRetried = false;
   gameplayMetrics.hintsUsedTotal = 0;
   gameplayMetrics.currentActions = 0;
+  gameplayMetrics.maxAlertLevel = 0;
+  gameplayMetrics.objectiveHintsUsed = 0;
+  gameplayMetrics.objectiveMaxAlertLevel = 0;
+  gameplayMetrics.objectiveKeysCollected = 0;
+  gameplayMetrics.totalKeysInLevel = 0;
+}
+
+function initObjectiveTracking() {
+  if (state && state.level && state.level.keys) {
+    gameplayMetrics.totalKeysInLevel = state.level.keys.length;
+  }
+  gameplayMetrics.maxAlertLevel = state ? state.alertLevel || 0 : 0;
+  gameplayMetrics.objectiveMaxAlertLevel = state ? state.alertLevel || 0 : 0;
+  gameplayMetrics.objectiveHintsUsed = 0;
+  gameplayMetrics.objectiveKeysCollected = 0;
 }
 
 function cloneLevel(index) {
@@ -392,7 +768,9 @@ function snapshotState(action) {
     done: state.done,
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
+    cameraShutdownTurns: state.cameraShutdownTurns || 0,
     alertLevel: state.alertLevel,
+    alertDecayTimer: state.alertDecayTimer || 0,
     soundSources: state.soundSources.map(s => ({ ...s, position: { ...s.position } })),
     level: {
       walls: [...state.level.walls],
@@ -423,10 +801,17 @@ function snapshotState(action) {
       mechanisms: m ? {
         pressurePlates: m.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) })),
         screens: m.screens.map(s => ({ ...s })),
-        lights: m.lights.map(l => ({ ...l }))
-      } : { pressurePlates: [], screens: [], lights: [] }
+        lights: m.lights.map(l => ({ ...l })),
+        cameras: m.cameras ? m.cameras.map(c => ({ ...c })) : []
+      } : { pressurePlates: [], screens: [], lights: [], cameras: [] }
     },
-    log: [...state.log]
+    log: [...state.log],
+    gameplayMetrics: { ...gameplayMetrics },
+    hintState: {
+      active: hintState.active,
+      path: hintState.path.map(p => ({ ...p })),
+      actionLabels: [...hintState.actionLabels]
+    }
   };
 }
 
@@ -434,23 +819,35 @@ function recordHistory(action) {
   state.history.push(snapshotState(action));
 }
 
-function undoAction() {
-  if (state.history.length <= 1) return;
-  if (state.done) return;
-  if (tutorialState.active) return;
-
-  state.history.pop();
+function syncCurrentHistorySnapshot() {
+  if (!state || !state.history || state.history.length === 0) return;
   const snapshot = state.history[state.history.length - 1];
+  snapshot.log = [...state.log];
+  snapshot.hintState = {
+    active: hintState.active,
+    path: hintState.path.map(p => ({ ...p })),
+    actionLabels: [...hintState.actionLabels]
+  };
+  snapshot.gameplayMetrics = { ...gameplayMetrics };
+}
 
+function canUndo() {
+  if (!state || !state.history || state.history.length <= 1) return false;
+  if (state.done) return false;
+  return true;
+}
+
+function restoreStateFromSnapshot(snapshot) {
   state.player = { ...snapshot.player };
   state.ap = snapshot.ap;
   state.keys = snapshot.keys;
   state.done = snapshot.done;
   state.visionReduced = snapshot.visionReduced;
   state.pendingVisionReduction = snapshot.pendingVisionReduction;
+  state.cameraShutdownTurns = snapshot.cameraShutdownTurns || 0;
   state.alertLevel = snapshot.alertLevel;
+  state.alertDecayTimer = snapshot.alertDecayTimer || 0;
   state.soundSources = snapshot.soundSources.map(s => ({ ...s, position: { ...s.position } }));
-  state.log = [...snapshot.log];
 
   state.level.walls = [...snapshot.level.walls];
   state.level.doors = snapshot.level.doors.map(d => ({ ...d }));
@@ -474,25 +871,61 @@ function undoAction() {
     id: g.id
   }));
   state.level.openedDoors = snapshot.level.openedDoors ? snapshot.level.openedDoors.map(d => ({ ...d })) : [];
+  state.level.exit = snapshot.level.exit ? { ...snapshot.level.exit } : null;
+  state.level.player = snapshot.level.player ? { ...snapshot.level.player } : null;
+  state.level.name = snapshot.level.name;
 
   const sm = snapshot.level.mechanisms;
-  if (state.level.mechanisms) {
-    state.level.mechanisms.pressurePlates = sm.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) }));
-    state.level.mechanisms.screens = sm.screens.map(s => ({ ...s }));
-    state.level.mechanisms.lights = sm.lights.map(l => ({ ...l }));
+  const tm = state.level.mechanisms;
+  if (sm && tm) {
+    tm.pressurePlates = sm.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) }));
+    tm.screens = sm.screens.map(s => ({ ...s }));
+    tm.lights = sm.lights.map(l => ({ ...l }));
+    tm.cameras = sm.cameras ? sm.cameras.map(c => ({ ...c })) : [];
   }
 
-  addLog(`↶ 撤销了「${snapshot.action}」`);
-  clearHint();
+  state.log = [...snapshot.log];
+
+  if (snapshot.gameplayMetrics) {
+    Object.assign(gameplayMetrics, snapshot.gameplayMetrics);
+  }
+
+  if (snapshot.hintState) {
+    hintState.active = snapshot.hintState.active;
+    hintState.path = snapshot.hintState.path.map(p => ({ ...p }));
+    hintState.actionLabels = [...snapshot.hintState.actionLabels];
+  } else {
+    hintState.active = false;
+    hintState.path = [];
+    hintState.actionLabels = [];
+  }
+}
+
+function undo() {
+  if (!canUndo()) return;
+
+  const undoneSnapshot = state.history.pop();
+
+  const snapshot = state.history[state.history.length - 1];
+  const undoAction = undoneSnapshot.action;
+  restoreStateFromSnapshot(snapshot);
+
+  state.log.push(`↶ 撤销了"${undoAction}"操作`);
+  state.log = state.log.slice(-28);
+
+  syncCurrentHistorySnapshot();
+
+  autoSave();
   render();
 }
 
 function freshState(index) {
   const level = cloneLevel(index);
-  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
   level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
   level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
+  level.mechanisms.cameras = level.mechanisms.cameras ? level.mechanisms.cameras.map((c) => ({ ...c, disabled: false })) : [];
   level.guards = initializeGuards(level.guards);
   level.openedDoors = [];
   return {
@@ -504,6 +937,7 @@ function freshState(index) {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -542,10 +976,11 @@ function freshStateFromLevel(levelData) {
   level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
   level.doors = level.doors.map((d) => ({ ...d, open: false }));
   level.guards = initializeGuards(level.guards || []);
-  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
   level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
   level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
+  level.mechanisms.cameras = level.mechanisms.cameras ? level.mechanisms.cameras.map((c) => ({ ...c, disabled: false })) : [];
   level.openedDoors = [];
   return {
     levelIndex: -1,
@@ -556,6 +991,7 @@ function freshStateFromLevel(levelData) {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -566,14 +1002,18 @@ function freshStateFromLevel(levelData) {
 
 function loadCustomLevel(levelData) {
   customLevelSource = JSON.parse(JSON.stringify(levelData));
+  autoSaveClear();
   state = freshStateFromLevel(levelData);
   resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
+  resetGameplayMetrics();
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   [...levelButtonsEl.children].forEach((button) => {
     button.classList.remove("active");
   });
   toggleBackToEditorBtn(true);
+  recordHistory("开局");
   render();
 }
 
@@ -589,6 +1029,7 @@ function toggleBackToEditorBtn(show) {
 }
 
 function startTutorial() {
+  autoSaveClear();
   if (tutorialState.errorTimeout) {
     clearTimeout(tutorialState.errorTimeout);
     tutorialState.errorTimeout = null;
@@ -608,6 +1049,7 @@ function startTutorial() {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -767,6 +1209,7 @@ function restartTutorialStep(reason = "manual") {
     done: false,
     visionReduced: false,
     pendingVisionReduction: false,
+    cameraShutdownTurns: 0,
     alertLevel: 0,
     alertDecayTimer: 0,
     soundSources: [],
@@ -824,6 +1267,19 @@ function renderChapterView() {
     const totalStars = ch.levelIndices.reduce((sum, idx) => sum + getLevelStarData(idx).bestStars, 0);
     const maxStars = ch.levelIndices.length * 3;
 
+    let totalObjectives = 0;
+    let completedObjectives = 0;
+    ch.levelIndices.forEach(idx => {
+      const levelObj = getLevelObjectives(idx);
+      const starData = getLevelStarData(idx);
+      totalObjectives += levelObj.length;
+      levelObj.forEach(objType => {
+        if (starData.completedObjectives.includes(objType)) {
+          completedObjectives += 1;
+        }
+      });
+    });
+
     let statusText = "";
     if (!unlocked) {
       statusText = "🔒 未解锁";
@@ -840,7 +1296,10 @@ function renderChapterView() {
         <div class="chapter-card-title">第${ch.id + 1}章：${ch.name}</div>
         <div class="chapter-card-desc">${ch.description}</div>
       </div>
-      <div class="chapter-card-status">${statusText}</div>
+      <div class="chapter-card-status">
+        <div>${statusText}</div>
+        ${totalObjectives > 0 ? `<div class="chapter-objective-count">🎯 ${completedObjectives}/${totalObjectives}</div>` : ""}
+      </div>
     `;
     card.appendChild(headerDiv);
 
@@ -851,6 +1310,7 @@ function renderChapterView() {
       const levelUnlocked = isLevelUnlocked(idx);
       const starData = getLevelStarData(idx);
       const desc = levelDescriptions[idx];
+      const levelObj = getLevelObjectives(idx);
       const levelCard = document.createElement("div");
       levelCard.className = `chapter-level-card ${levelUnlocked ? "unlocked" : "locked"} ${state.levelIndex === idx ? "active-level" : ""}`;
 
@@ -865,6 +1325,16 @@ function renderChapterView() {
         }
       }
 
+      let objectivesHtml = "";
+      if (levelUnlocked && levelObj.length > 0) {
+        const objIcons = levelObj.map(objType => {
+          const def = OBJECTIVE_DEFS[objType];
+          const isCompleted = starData.completedObjectives.includes(objType);
+          return `<span class="level-objective-icon ${isCompleted ? "completed" : "incomplete"}" title="${def.name}：${def.desc}">${def.icon}</span>`;
+        }).join("");
+        objectivesHtml = `<div class="level-objectives">${objIcons}</div>`;
+      }
+
       levelCard.innerHTML = `
         <div class="chapter-level-name">关卡${levels[idx].name}</div>
         <div class="chapter-level-brief">${desc ? desc.brief : ""}</div>
@@ -872,6 +1342,7 @@ function renderChapterView() {
           ? `<div class="chapter-level-stars">${starsHtml}</div>`
           : `<div class="chapter-level-lock">🔒 需通关上一关</div>`
         }
+        ${objectivesHtml}
       `;
 
       if (levelUnlocked) {
@@ -928,9 +1399,24 @@ function init() {
       loadDailyChallenge();
     });
   }
+  const autosaveAcceptBtn = document.getElementById("autosaveAcceptBtn");
+  const autosaveDismissBtn = document.getElementById("autosaveDismissBtn");
+  if (autosaveAcceptBtn) {
+    autosaveAcceptBtn.addEventListener("click", acceptAutosaveRestore);
+  }
+  if (autosaveDismissBtn) {
+    autosaveDismissBtn.addEventListener("click", dismissAutosaveDialog);
+  }
   recordHistory("开局");
   render();
   renderDailyInfo();
+  window.addEventListener("beforeunload", () => {
+    autoSave();
+  });
+  const saved = autoSaveLoad();
+  if (saved && saved.state && !saved.state.done && saved.history && saved.history.length > 1) {
+    showAutosaveRestoreDialog(saved);
+  }
 }
 
 function emitSound(source, loudness, position) {
@@ -967,6 +1453,12 @@ function updateGlobalAlertLevel() {
     maxAlert = Math.max(maxAlert, guard.alertLevel);
   });
   state.alertLevel = maxAlert;
+  if (maxAlert > gameplayMetrics.maxAlertLevel) {
+    gameplayMetrics.maxAlertLevel = maxAlert;
+  }
+  if (maxAlert > gameplayMetrics.objectiveMaxAlertLevel) {
+    gameplayMetrics.objectiveMaxAlertLevel = maxAlert;
+  }
 }
 
 function decayAlertLevels() {
@@ -1147,19 +1639,23 @@ function bindControls() {
   document.getElementById("downBtn").addEventListener("click", () => move(0, 1));
   document.getElementById("leftBtn").addEventListener("click", () => move(-1, 0));
   document.getElementById("rightBtn").addEventListener("click", () => move(1, 0));
-  waitBtn.addEventListener("click", endTurn);
-  repairBtn.addEventListener("click", repair);
-  hintBtn.addEventListener("click", requestHint);
-  restartBtn.addEventListener("click", restartLevel);
-  const undoBtn = document.getElementById("undoBtn");
-  if (undoBtn) {
-    undoBtn.addEventListener("click", undoAction);
-  }
   const undoBtnTouch = document.getElementById("undoBtnTouch");
   if (undoBtnTouch) {
-    undoBtnTouch.addEventListener("click", undoAction);
+    undoBtnTouch.addEventListener("click", undo);
   }
+  waitBtn.addEventListener("click", endTurn);
+  repairBtn.addEventListener("click", repair);
+  if (undoBtn) {
+    undoBtn.addEventListener("click", undo);
+  }
+  hintBtn.addEventListener("click", requestHint);
+  restartBtn.addEventListener("click", restartLevel);
   window.addEventListener("keydown", (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+      event.preventDefault();
+      undo();
+      return;
+    }
     const keys = {
       ArrowUp: [0, -1],
       ArrowDown: [0, 1],
@@ -1175,11 +1671,6 @@ function bindControls() {
       repair();
       return;
     }
-    if ((event.ctrlKey || event.metaKey) && event.key === "z") {
-      event.preventDefault();
-      undoAction();
-      return;
-    }
     const dir = keys[event.key];
     if (dir) {
       event.preventDefault();
@@ -1193,6 +1684,14 @@ function bindReplayControls() {
   replayPlayBtn.addEventListener("click", toggleReplayPlay);
   replayPrevBtn.addEventListener("click", replayPrevStep);
   replayNextBtn.addEventListener("click", replayNextStep);
+  replaySpeedSlowBtn.addEventListener("click", () => setReplaySpeed("slow"));
+  replaySpeedNormalBtn.addEventListener("click", () => setReplaySpeed("normal"));
+  replaySpeedFastBtn.addEventListener("click", () => setReplaySpeed("fast"));
+  replayJumpFixBtn.addEventListener("click", () => jumpToKeyStep("fix"));
+  replayJumpDoorBtn.addEventListener("click", () => jumpToKeyStep("door"));
+  replayJumpKeyBtn.addEventListener("click", () => jumpToKeyStep("key"));
+  replayJumpSeenBtn.addEventListener("click", () => jumpToKeyStep("seen"));
+  replayJumpWinBtn.addEventListener("click", () => jumpToKeyStep("win"));
 }
 
 function renderLevelButtons() {
@@ -1219,14 +1718,21 @@ function renderLevelButtons() {
 
 function loadLevel(index, preserveMetrics) {
   customLevelSource = null;
+  autoSaveClear();
   state = freshState(index);
   resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
   toggleBackToEditorBtn(false);
-  if (!preserveMetrics) resetGameplayMetrics();
-  else gameplayMetrics.currentActions = 0;
+  if (!preserveMetrics) {
+    resetGameplayMetrics();
+    initObjectiveTracking();
+  } else {
+    gameplayMetrics.currentActions = 0;
+    initObjectiveTracking();
+  }
   recordHistory("开局");
   render();
 }
@@ -1241,6 +1747,7 @@ function restartLevel() {
     state = freshStateFromLevel(customLevelSource);
     gameplayMetrics.currentActions = 0;
     resultEl.classList.add("hidden");
+    resultEl.classList.remove("daily-result-style");
     recordHistory("开局");
     render();
     return;
@@ -1250,6 +1757,7 @@ function restartLevel() {
     state.levelIndex = -3;
     gameplayMetrics.currentActions = 0;
     resultEl.classList.add("hidden");
+    resultEl.classList.remove("daily-result-style");
     recordHistory("开局");
     render();
     renderDailyInfo();
@@ -1366,6 +1874,21 @@ function move(dx, dy) {
     fail("巡逻员发现了你的手电反光。");
     return;
   }
+  if (seenByCamera()) {
+    if (tutorialState.active) {
+      showTutorialError("seenByGuard", true);
+      restartTutorialStep("guard");
+      return;
+    }
+    state.alertLevel = Math.min(3, state.alertLevel + 1);
+    if (state.alertLevel >= 3) {
+      recordHistory(action);
+      fail("安保摄像头捕捉到了你的身影，警报拉响！");
+      return;
+    }
+    addLog("⚠️ 你被安保摄像头拍到了，警觉程度上升！");
+    updateGlobalAlertLevel();
+  }
 
   if (tutorialState.active) {
     checkTutorialStep();
@@ -1374,9 +1897,11 @@ function move(dx, dy) {
   if (state.ap === 0) {
     recordHistory(action);
     endTurn();
+    autoSave();
     return;
   }
   recordHistory(action);
+  autoSave();
   render();
 }
 
@@ -1425,9 +1950,11 @@ function repair() {
   if (state.ap === 0) {
     recordHistory("修复展柜");
     endTurn();
+    autoSave();
     return;
   }
   recordHistory("修复展柜");
+  autoSave();
   render();
 }
 
@@ -1447,8 +1974,7 @@ function endTurn() {
 
   state.ap = 4;
   gameplayMetrics.currentActions += 1;
-  state.visionReduced = state.pendingVisionReduction;
-  state.pendingVisionReduction = false;
+  advanceLightAndCameraEffects();
 
   decayAlertLevels();
 
@@ -1466,6 +1992,21 @@ function endTurn() {
     fail("换班瞬间被巡逻员撞见。");
     return;
   }
+  if (seenByCamera()) {
+    if (tutorialState.active) {
+      showTutorialError("seenByGuard", true);
+      restartTutorialStep("guard");
+      return;
+    }
+    state.alertLevel = Math.min(3, state.alertLevel + 1);
+    if (state.alertLevel >= 3) {
+      recordHistory("等待回合");
+      fail("安保摄像头捕捉到了你的身影，警报拉响！");
+      return;
+    }
+    addLog("⚠️ 你被安保摄像头拍到了，警觉程度上升！");
+    updateGlobalAlertLevel();
+  }
 
   if (tutorialState.active) {
     checkTutorialStep();
@@ -1477,7 +2018,27 @@ function endTurn() {
     return;
   }
   recordHistory("等待回合");
+  autoSave();
   render();
+}
+
+function restoreCameras() {
+  const cameras = getMechanisms().cameras || [];
+  cameras.forEach(cam => {
+    cam.disabled = false;
+  });
+}
+
+function advanceLightAndCameraEffects() {
+  state.visionReduced = state.pendingVisionReduction;
+  state.pendingVisionReduction = false;
+  if (state.cameraShutdownTurns > 0) {
+    state.cameraShutdownTurns -= 1;
+    if (state.cameraShutdownTurns === 0) {
+      restoreCameras();
+      addLog("安保摄像头重新上线。");
+    }
+  }
 }
 
 function pickKey() {
@@ -1485,6 +2046,7 @@ function pickKey() {
   if (key) {
     key.taken = true;
     state.keys += 1;
+    gameplayMetrics.objectiveKeysCollected += 1;
     addLog("捡到一枚展柜侧门钥匙。");
   }
 }
@@ -1499,31 +2061,81 @@ function allFixed() {
 
 function win() {
   state.done = true;
+  autoSaveClear();
 
   updateStatsOnWin(state.levelIndex);
 
   if (state.levelIndex === -3) {
     const dateKey = getDateKey();
     const steps = calculateSteps();
+    const hintsUsed = gameplayMetrics.hintsUsedTotal;
     const existing = getDailyRecord(dateKey);
+    const isNewRecord = !existing || !existing.bestSteps || steps < existing.bestSteps;
+    const bestSteps = isNewRecord ? steps : (existing.bestSteps || steps);
     const newRecord = {
       completed: true,
-      bestSteps: existing && existing.bestSteps ? Math.min(existing.bestSteps, steps) : steps,
+      bestSteps: bestSteps,
+      bestHintsUsed: isNewRecord ? hintsUsed : (existing.bestHintsUsed ?? hintsUsed),
+      lastSteps: steps,
+      lastHintsUsed: hintsUsed,
       date: dateKey,
       completedAt: Date.now()
     };
     saveDailyRecord(dateKey, newRecord);
     renderDailyInfo();
 
-    const bestSteps = newRecord.bestSteps;
-    const isNewRecord = !existing || !existing.bestSteps || steps < existing.bestSteps;
-    const recordMsg = isNewRecord ? `🏆 新纪录！步数：${steps}` : `本次步数：${steps}，最佳：${bestSteps}`;
-    resultEl.innerHTML = `<h2>每日挑战完成！</h2><p>所有展品复位，并从指定出口离开。</p><p>${recordMsg}</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
+    const hintsText = hintsUsed === 0 ? "未使用提示" : `使用提示 ${hintsUsed} 次`;
+    const newRecordBadge = isNewRecord ? '<span class="daily-new-record-badge">🏆 新纪录！</span>' : "";
+
+    resultEl.innerHTML = `
+      <div class="daily-result-panel">
+        <h2>每日挑战完成！</h2>
+        <div class="daily-result-date">${dateStr}</div>
+        ${newRecordBadge}
+        <div class="daily-result-stats">
+          <div class="daily-result-stat">
+            <span class="stat-label">本次步数</span>
+            <span class="stat-value">${steps}</span>
+          </div>
+          <div class="daily-result-stat">
+            <span class="stat-label">最佳步数</span>
+            <span class="stat-value">${bestSteps}</span>
+          </div>
+          <div class="daily-result-stat">
+            <span class="stat-label">提示使用</span>
+            <span class="stat-value">${hintsUsed} 次</span>
+          </div>
+        </div>
+        <p class="daily-result-desc">所有展品复位，并从指定出口离开。</p>
+        <div class="daily-share-section">
+          <div class="daily-share-text" id="dailyShareText">${generateDailyShareText(dateStr, steps, bestSteps, hintsUsed, isNewRecord)}</div>
+          <button id="dailyCopyBtn" type="button" class="daily-copy-btn">📋 复制分享文案</button>
+        </div>
+        <div class="daily-result-actions">
+          <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
+          <button id="dailyRetryBtn" type="button" class="daily-retry-btn">再来一次</button>
+        </div>
+      </div>
+    `;
+    resultEl.classList.add("daily-result-style");
     resultEl.classList.remove("hidden");
     addLog("警报没有响，展厅恢复安静。每日挑战完成！");
     recordHistory("通关成功");
+
     const replayBtn = document.getElementById("replayBtn");
     if (replayBtn) replayBtn.addEventListener("click", () => openReplay(true));
+
+    const copyBtn = document.getElementById("dailyCopyBtn");
+    if (copyBtn) copyBtn.addEventListener("click", copyDailyShareText);
+
+    const retryBtn = document.getElementById("dailyRetryBtn");
+    if (retryBtn) retryBtn.addEventListener("click", () => {
+      resultEl.classList.add("hidden");
+      loadDailyChallenge();
+    });
+
     render();
     return;
   }
@@ -1532,7 +2144,11 @@ function win() {
     const stars = calculateStars(state.levelIndex, gameplayMetrics.currentActions, gameplayMetrics.hasRetried, gameplayMetrics.hintsUsedTotal);
     const prevData = getLevelStarData(state.levelIndex);
     const isNewBest = stars > prevData.bestStars;
-    updateLevelStarData(state.levelIndex, stars);
+
+    const levelObj = getLevelObjectives(state.levelIndex);
+    const completedObj = evaluateObjectives(state.levelIndex);
+    const newObjectives = completedObj.filter(obj => !prevData.completedObjectives.includes(obj));
+    updateLevelStarData(state.levelIndex, stars, completedObj);
 
     const nextIdx = getNextLevelIndex(state.levelIndex);
     let nextLevelHtml = "";
@@ -1545,6 +2161,33 @@ function win() {
     const starDisplay = renderStars(stars);
     const bestStarDisplay = isNewBest ? `<span class="star-new-best">新纪录！</span>` : `<span class="star-prev-best">历史最佳：${renderStars(prevData.bestStars)}</span>`;
 
+    let objectivesHtml = "";
+    if (levelObj.length > 0) {
+      const objItems = levelObj.map(objType => {
+        const def = OBJECTIVE_DEFS[objType];
+        const isCompleted = completedObj.includes(objType);
+        const isNew = newObjectives.includes(objType);
+        const statusClass = isCompleted ? "completed" : "failed";
+        const newBadge = isNew ? '<span class="objective-new">新达成！</span>' : "";
+        return `
+          <div class="objective-item ${statusClass}">
+            <span class="objective-icon">${def.icon}</span>
+            <span class="objective-name">${def.name}</span>
+            <span class="objective-status">${isCompleted ? "✓ 完成" : "✗ 未完成"}</span>
+            ${newBadge}
+          </div>
+        `;
+      }).join("");
+      objectivesHtml = `
+        <div class="objectives-section">
+          <h3>🎯 展厅目标</h3>
+          <div class="objectives-list">
+            ${objItems}
+          </div>
+        </div>
+      `;
+    }
+
     resultEl.innerHTML = `
       <h2>本关修复完成</h2>
       <div class="star-rating">
@@ -1556,11 +2199,13 @@ function win() {
         <p>${gameplayMetrics.hasRetried ? "⚠️ 有重试记录" : "✓ 无重试"}</p>
         <p>使用提示：${gameplayMetrics.hintsUsedTotal}次</p>
       </div>
+      ${objectivesHtml}
       <p>所有展品复位，并从指定出口离开。</p>
       ${nextLevelHtml}
       <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
       <button id="retryForStarsBtn" type="button" class="retry-stars-btn">重试刷星</button>
     `;
+    resultEl.classList.remove("daily-result-style");
     resultEl.classList.remove("hidden");
     addLog("警报没有响，展厅恢复安静。");
     recordHistory("通关成功");
@@ -1592,6 +2237,7 @@ function win() {
   }
 
   resultEl.innerHTML = `<h2>本关修复完成</h2><p>所有展品复位，并从指定出口离开。可以选择下一关继续。</p><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+  resultEl.classList.remove("daily-result-style");
   resultEl.classList.remove("hidden");
   addLog("警报没有响，展厅恢复安静。");
   recordHistory("通关成功");
@@ -1602,11 +2248,13 @@ function win() {
 
 function fail(reason) {
   state.done = true;
+  autoSaveClear();
   gameplayMetrics.hasRetried = true;
 
   updateStatsOnFail(state.levelIndex, reason);
 
   resultEl.innerHTML = `<h2>行动失败</h2><p>${reason}</p><button id="failRetryBtn" type="button">重试本关</button><button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>`;
+  resultEl.classList.remove("daily-result-style");
   resultEl.classList.remove("hidden");
   addLog(reason);
   if (!state.history[state.history.length - 1] || state.history[state.history.length - 1].action !== "被发现") {
@@ -1622,13 +2270,10 @@ function fail(reason) {
   render();
 }
 
-function seenByGuard() {
-  return visionSet().has(pointKey(state.player));
-}
-
-function visionSet() {
+function guardVisionSet() {
   const set = new Set();
   const m = getMechanisms();
+  const wallSet = new Set(state.level.walls);
   const screenSet = new Set(m.screens.map(s => pointKey(s)));
   state.level.guards.forEach((guard) => {
     const pos = getGuardCurrentPosition(guard);
@@ -1641,16 +2286,65 @@ function visionSet() {
     const dy = dir.dy;
     for (let i = 1; i <= maxRange; i += 1) {
       const point = { x: pos.x + dx * i, y: pos.y + dy * i };
-      if (!inside(point) || isWall(point) || screenSet.has(pointKey(point))) break;
+      if (!inside(point) || wallSet.has(pointKey(point)) || screenSet.has(pointKey(point))) break;
       set.add(pointKey(point));
     }
   });
   return set;
 }
 
+function cameraVisionSet() {
+  const m = getMechanisms();
+  const wallSet = new Set(state.level.walls);
+  const screenSet = new Set(m.screens.map(s => pointKey(s)));
+  const cameras = m.cameras || [];
+  return getCameraVisionSet(cameras, wallSet, screenSet, state.visionReduced);
+}
+
+function seenByGuard() {
+  return guardVisionSet().has(pointKey(state.player));
+}
+
+function seenByCamera() {
+  const camVision = cameraVisionSet();
+  const playerKey = pointKey(state.player);
+  if (camVision.has(playerKey)) {
+    const m = getMechanisms();
+    const cameras = m.cameras || [];
+    for (const cam of cameras) {
+      if (!cam.disabled && samePoint(cam, state.player)) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function getCameraVisionSet(cameras, wallSet, screenSet, visionReduced) {
+  const set = new Set();
+  const maxRange = visionReduced ? 3 : 6;
+  cameras.forEach((camera) => {
+    if (camera.disabled) return;
+    const dir = cameraDirToVector(camera.direction);
+    for (let i = 1; i <= maxRange; i += 1) {
+      const point = { x: camera.x + dir.dx * i, y: camera.y + dir.dy * i };
+      if (!inside(point) || wallSet.has(pointKey(point)) || screenSet.has(pointKey(point))) break;
+      set.add(pointKey(point));
+    }
+  });
+  return set;
+}
+
+function visionSet() {
+  const set = guardVisionSet();
+  const camVision = cameraVisionSet();
+  camVision.forEach(k => set.add(k));
+  return set;
+}
+
 function visionSetForSnapshot(snapshot) {
   const set = new Set();
-  const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
+  const wallSet = new Set(snapshot.level.walls);
   const screenSet = new Set(sm.screens.map(s => pointKey(s)));
   const maxRange = snapshot.visionReduced ? 1 : 2;
   snapshot.level.guards.forEach((guard) => {
@@ -1691,6 +2385,9 @@ function visionSetForSnapshot(snapshot) {
       set.add(pointKey(point));
     }
   });
+  const cameras = sm.cameras || [];
+  const cameraVision = getCameraVisionSet(cameras, wallSet, screenSet, snapshot.visionReduced);
+  cameraVision.forEach(k => set.add(k));
   return set;
 }
 
@@ -1723,7 +2420,7 @@ function pointKey(point) {
 }
 
 function getMechanisms() {
-  return state.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  return state.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
 }
 
 function screenAt(point) {
@@ -1739,6 +2436,15 @@ function pressurePlateAt(point) {
 function lightAt(point) {
   const m = getMechanisms();
   return m.lights.find(l => samePoint(l, point)) || null;
+}
+
+function cameraAt(point) {
+  const m = getMechanisms();
+  return (m.cameras || []).find(c => samePoint(c, point)) || null;
+}
+
+function isCamera(point) {
+  return cameraAt(point) !== null;
 }
 
 function isScreen(point) {
@@ -1781,14 +2487,29 @@ function activatePressurePlates() {
 
 function activateLights() {
   const m = getMechanisms();
+  let anyLightActivated = false;
   m.lights.forEach(light => {
     if (light.active) return;
     if (samePoint(state.player, light)) {
       light.active = true;
       state.pendingVisionReduction = true;
-      addLog("按下了熄灯开关，巡逻员下一回合视野会缩短。");
+      anyLightActivated = true;
     }
   });
+  if (anyLightActivated) {
+    const cameras = m.cameras || [];
+    cameras.forEach(cam => {
+      if (!cam.disabled) {
+        cam.disabled = true;
+      }
+    });
+    if (cameras.length > 0) {
+      state.cameraShutdownTurns = Math.max(state.cameraShutdownTurns || 0, 2);
+      addLog("按下了熄灯开关，巡逻员视野缩短，安保摄像头也被暂时关闭。");
+    } else {
+      addLog("按下了熄灯开关，巡逻员下一回合视野会缩短。");
+    }
+  }
 }
 
 function addLog(text) {
@@ -1822,16 +2543,15 @@ function render() {
   }
   waitBtn.disabled = state.done;
   repairBtn.disabled = state.done;
-  hintBtn.disabled = state.done;
-  hintBtn.classList.toggle("hint-btn", !state.done);
-  const undoBtn = document.getElementById("undoBtn");
   if (undoBtn) {
-    undoBtn.disabled = state.done || state.history.length <= 1 || tutorialState.active;
+    undoBtn.disabled = !canUndo();
   }
   const undoBtnTouch = document.getElementById("undoBtnTouch");
   if (undoBtnTouch) {
-    undoBtnTouch.disabled = state.done || state.history.length <= 1 || tutorialState.active;
+    undoBtnTouch.disabled = !canUndo();
   }
+  hintBtn.disabled = state.done;
+  hintBtn.classList.toggle("hint-btn", !state.done);
   renderBoard();
   renderLog();
 }
@@ -1923,11 +2643,20 @@ function renderBoard() {
         if (light.active) tile.classList.add("active");
         label.textContent = light.active ? "熄灯✓" : "熄灯";
       }
+      const cam = (m.cameras || []).find(c => samePoint(c, point));
+      if (cam) {
+        tile.classList.add("camera");
+        if (cam.disabled) tile.classList.add("camera-disabled");
+        tile.classList.add(`camera-${cam.direction}`);
+        label.textContent = cam.disabled ? "摄像✗" : `摄像${getCameraDirectionLabel(cam.direction)}`;
+      }
       if (samePoint(state.level.exit, point)) {
         tile.classList.add("exit");
         label.textContent = "出口";
       }
       if (vision.has(pointKey(point))) tile.classList.add("vision");
+      const camVision = cameraVisionSet();
+      if (camVision.has(pointKey(point))) tile.classList.add("camera-vision");
       if (investigateTargets.has(pointKey(point))) tile.classList.add("investigate-target");
       if (traceTargets.has(pointKey(point))) tile.classList.add("trace-target");
 
@@ -1987,6 +2716,8 @@ function openReplay(isWin) {
   replayState.history = state.history;
   replayState.currentStep = 0;
   replayState.isPlaying = false;
+  replayState.speedLevel = "normal";
+  replayState.playSpeed = REPLAY_SPEEDS.normal;
   replayPlayBtn.textContent = "▶ 播放";
   replayTotalEl.textContent = replayState.history.length;
   replayStepEl.textContent = "1";
@@ -1995,8 +2726,65 @@ function openReplay(isWin) {
   replayProgressEl.oninput = (e) => {
     goToReplayStep(parseInt(e.target.value, 10));
   };
+  updateReplaySpeedButtons();
+  detectKeySteps();
   replayEl.classList.remove("hidden");
   renderReplayStep();
+}
+
+function detectKeySteps() {
+  const history = replayState.history;
+  replayState.keySteps = { fix: -1, door: -1, key: -1, seen: -1, win: -1 };
+
+  for (let i = 0; i < history.length; i += 1) {
+    const snap = history[i];
+    const prevSnap = i > 0 ? history[i - 1] : null;
+
+    if (replayState.keySteps.fix === -1 && snap.action.indexOf("修复展柜") !== -1) {
+      replayState.keySteps.fix = i;
+    }
+    if (replayState.keySteps.door === -1 && snap.action.indexOf("开门") !== -1) {
+      replayState.keySteps.door = i;
+    }
+    if (replayState.keySteps.seen === -1 && snap.action.indexOf("被发现") !== -1) {
+      replayState.keySteps.seen = i;
+    }
+    if (replayState.keySteps.win === -1 && snap.action.indexOf("通关成功") !== -1) {
+      replayState.keySteps.win = i;
+    }
+    if (replayState.keySteps.key === -1 && prevSnap) {
+      const prevKeyCount = prevSnap.keys;
+      const curKeyCount = snap.keys;
+      if (curKeyCount > prevKeyCount) {
+        replayState.keySteps.key = i;
+      }
+    }
+  }
+}
+
+function setReplaySpeed(level) {
+  if (!REPLAY_SPEEDS[level]) return;
+  replayState.speedLevel = level;
+  replayState.playSpeed = REPLAY_SPEEDS[level];
+  updateReplaySpeedButtons();
+  if (replayState.isPlaying) {
+    stopReplayPlay();
+    startReplayPlay();
+  }
+}
+
+function updateReplaySpeedButtons() {
+  const btns = { slow: replaySpeedSlowBtn, normal: replaySpeedNormalBtn, fast: replaySpeedFastBtn };
+  Object.keys(btns).forEach((level) => {
+    btns[level].classList.toggle("active", replayState.speedLevel === level);
+  });
+}
+
+function jumpToKeyStep(keyType) {
+  const stepIndex = replayState.keySteps[keyType];
+  if (stepIndex === -1) return;
+  stopReplayPlay();
+  goToReplayStep(stepIndex);
 }
 
 function closeReplay() {
@@ -2040,7 +2828,7 @@ function renderReplayStep() {
         tile.classList.add(exhibit.fixed ? "fixed-exhibit" : "exhibit");
         label.textContent = exhibit.fixed ? "已修" : "展柜";
       }
-      const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+      const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
       const plate = sm.pressurePlates.find(p => samePoint(p, point));
       if (plate) {
         tile.classList.add("pressure-plate");
@@ -2058,11 +2846,25 @@ function renderReplayStep() {
         if (light.active) tile.classList.add("active");
         label.textContent = light.active ? "熄灯✓" : "熄灯";
       }
+      const cam = (sm.cameras || []).find(c => samePoint(c, point));
+      if (cam) {
+        tile.classList.add("camera");
+        if (cam.disabled) tile.classList.add("camera-disabled");
+        tile.classList.add(`camera-${cam.direction}`);
+        label.textContent = cam.disabled ? "摄像✗" : `摄像${getCameraDirectionLabel(cam.direction)}`;
+      }
       if (snapshot.level.exit && samePoint(snapshot.level.exit, point)) {
         tile.classList.add("exit");
         label.textContent = "出口";
       }
       if (vision.has(pointKey(point))) tile.classList.add("vision");
+      const snapshotCamVision = getCameraVisionSet(
+        sm.cameras || [],
+        new Set(snapshot.level.walls),
+        new Set((sm.screens || []).map(s => pointKey(s))),
+        snapshot.visionReduced
+      );
+      if (snapshotCamVision.has(pointKey(point))) tile.classList.add("camera-vision");
       if (guards.some((guard) => samePoint(guard, point))) tile.classList.add("guard");
       if (samePoint(snapshot.player, point)) tile.classList.add("player");
       tile.appendChild(label);
@@ -2078,6 +2880,12 @@ function renderReplayStep() {
   });
   replayPrevBtn.disabled = replayState.currentStep <= 0;
   replayNextBtn.disabled = replayState.currentStep >= replayState.history.length - 1;
+  replayPlayBtn.disabled = replayState.history.length <= 1;
+  replayJumpFixBtn.disabled = replayState.keySteps.fix === -1;
+  replayJumpDoorBtn.disabled = replayState.keySteps.door === -1;
+  replayJumpKeyBtn.disabled = replayState.keySteps.key === -1;
+  replayJumpSeenBtn.disabled = replayState.keySteps.seen === -1;
+  replayJumpWinBtn.disabled = replayState.keySteps.win === -1;
 }
 
 function replayPrevStep() {
@@ -2837,9 +3645,12 @@ function loadDailyChallenge() {
   const dateKey = getDateKey();
   const level = generateDailyLevel(dateKey);
   customLevelSource = JSON.parse(JSON.stringify(level));
+  autoSaveClear();
   state = freshStateFromLevel(level);
   state.levelIndex = -3;
   resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
+  resetGameplayMetrics();
   tutorialState.active = false;
   tutorialHintEl.classList.add("hidden");
   tutorialBtn.classList.remove("active");
@@ -2865,14 +3676,17 @@ function renderDailyInfo() {
   let statusHtml = "";
   if (record) {
     if (record.completed) {
+      const bestHints = record.bestHintsUsed != null ? record.bestHintsUsed : "-";
+      const hintsText = bestHints === 0 ? "无提示" : `提示 ${bestHints} 次`;
       statusHtml = `
         <span class="daily-status completed">✅ 已完成</span>
         <span>最佳步数<strong>${record.bestSteps}</strong></span>
+        <span class="daily-hint-info">${hintsText}</span>
       `;
     } else {
       statusHtml = `
         <span class="daily-status pending">⏳ 挑战中</span>
-        <span>上次步数<strong>${record.bestSteps || "-"}</strong></span>
+        <span>上次步数<strong>${record.lastSteps || record.bestSteps || "-"}</strong></span>
       `;
     }
   } else {
@@ -2880,9 +3694,23 @@ function renderDailyInfo() {
   }
 
   infoEl.innerHTML = `
-    <div class="daily-date">挑战日期：${dateStr}</div>
-    <div class="daily-status-line">${statusHtml}</div>
+    <div class="daily-info-left">
+      <div class="daily-date">每日挑战 · ${dateStr}</div>
+      <div class="daily-status-line">${statusHtml}</div>
+    </div>
+    <div class="daily-info-right">
+      <button id="dailyQuickBtn" type="button" class="daily-quick-btn">
+        ${record && record.completed ? "再挑战一次" : "开始挑战"}
+      </button>
+    </div>
   `;
+
+  const quickBtn = document.getElementById("dailyQuickBtn");
+  if (quickBtn) {
+    quickBtn.addEventListener("click", () => {
+      loadDailyChallenge();
+    });
+  }
 }
 
 function calculateSteps() {
@@ -2894,6 +3722,65 @@ function calculateSteps() {
     }
   }
   return Math.max(1, steps);
+}
+
+function generateDailyShareText(dateStr, steps, bestSteps, hintsUsed, isNewRecord) {
+  const hintText = hintsUsed === 0 ? "无提示通关" : `使用 ${hintsUsed} 次提示`;
+  const recordText = isNewRecord ? "🏆 新纪录！" : "";
+  const shareText = `【博物馆夜间修复师·每日挑战】
+📅 ${dateStr}
+👣 本次步数：${steps} 步
+⭐ 最佳纪录：${bestSteps} 步
+💡 ${hintText}
+${recordText}
+快来挑战今日关卡吧！`;
+  return shareText;
+}
+
+function copyDailyShareText() {
+  const shareTextEl = document.getElementById("dailyShareText");
+  const copyBtn = document.getElementById("dailyCopyBtn");
+  if (!shareTextEl || !copyBtn) return;
+
+  const text = shareTextEl.textContent || shareTextEl.innerText;
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showCopySuccess(copyBtn);
+    }).catch(() => {
+      fallbackCopy(text, copyBtn);
+    });
+  } else {
+    fallbackCopy(text, copyBtn);
+  }
+}
+
+function fallbackCopy(text, btn) {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  textArea.style.top = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try {
+    document.execCommand("copy");
+    showCopySuccess(btn);
+  } catch (err) {
+    console.error("复制失败:", err);
+  }
+  document.body.removeChild(textArea);
+}
+
+function showCopySuccess(btn) {
+  const originalText = btn.textContent;
+  btn.textContent = "✓ 已复制";
+  btn.classList.add("copy-success");
+  setTimeout(() => {
+    btn.textContent = originalText;
+    btn.classList.remove("copy-success");
+  }, 2000);
 }
 
 function clearHint() {
@@ -2910,6 +3797,7 @@ function requestHint() {
     return;
   }
   gameplayMetrics.hintsUsedTotal += 1;
+  gameplayMetrics.objectiveHintsUsed += 1;
 
   addLog("正在分析局势，计算最优路线...");
   render();
@@ -2930,6 +3818,7 @@ function requestHint() {
       clearHint();
       addLog("😰 暂时找不到安全路线，建议先等待或调整位置。");
     }
+    syncCurrentHistorySnapshot();
     render();
   }, 50);
 }
@@ -2968,6 +3857,8 @@ function cloneHintState(s) {
     lightsActive: [...s.lightsActive],
     visionReduced: s.visionReduced,
     pendingVisionReduction: s.pendingVisionReduction,
+    camerasDisabled: s.camerasDisabled,
+    cameraShutdownTurns: s.cameraShutdownTurns,
     step: s.step,
     ap: s.ap,
     path: [...s.path],
@@ -2975,31 +3866,62 @@ function cloneHintState(s) {
   };
 }
 
-function hintStateKey(s, cycleLen, numExhibits, numPlates, numLights) {
+function hintStateKey(s, cycleLen, numExhibits, numPlates, numLights, numCameras) {
   const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
   const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
   const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
   const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
   const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}`;
+  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}|${s.cameraShutdownTurns || 0}`;
+}
+
+function advanceHintLightAndCameraEffects(s) {
+  s.visionReduced = s.pendingVisionReduction;
+  s.pendingVisionReduction = false;
+  if (s.cameraShutdownTurns > 0) {
+    s.cameraShutdownTurns -= 1;
+    s.camerasDisabled = s.cameraShutdownTurns > 0;
+  }
 }
 
 function searchHintPath() {
   const { walls, doors, keys: keyItems, exhibits, guards, exit } = state.level;
-  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   const pressurePlates = mechanisms.pressurePlates || [];
   const screens = mechanisms.screens || [];
   const lights = mechanisms.lights || [];
+  const cameras = mechanisms.cameras || [];
 
   const numExhibits = exhibits.length;
   const numDoors = doors.length;
   const numPlates = pressurePlates.length;
   const numLights = lights.length;
+  const numCameras = cameras.length;
   const cycleLen = getGuardCycleLength(guards);
 
   const guardInitSteps = guards.map(g => g.step);
 
-  function getVisionAtOffset(offset, screenList, visionReduced) {
+  function getCameraVisionSetForHint(screenList, visionReduced, camerasDisabled) {
+    const vision = new Set();
+    if (camerasDisabled) return vision;
+    const wallSet = new Set(walls);
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const camRange = visionReduced ? 3 : 6;
+    cameras.forEach(cam => {
+      if (cam.disabled) return;
+      const vec = cameraDirToVector(cam.direction);
+      for (let i = 1; i <= camRange; i++) {
+        const p = { x: cam.x + vec.dx * i, y: cam.y + vec.dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
+  }
+
+  function getVisionAtOffset(offset, screenList, visionReduced, camerasDisabled) {
     const vision = new Set();
     const wallSet = new Set(walls);
     const screenSet = new Set(screenList.map(s => pointKey(s)));
@@ -3019,6 +3941,8 @@ function searchHintPath() {
         vision.add(pointKey(p));
       }
     });
+    const camVision = getCameraVisionSetForHint(screenList, visionReduced, camerasDisabled);
+    camVision.forEach(k => vision.add(k));
     return vision;
   }
 
@@ -3047,13 +3971,15 @@ function searchHintPath() {
     lightsActive: [...currentLightsActive],
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
+    camerasDisabled: (state.cameraShutdownTurns || 0) > 0,
+    cameraShutdownTurns: state.cameraShutdownTurns || 0,
     step: 0,
     ap: state.ap,
     path: [{ ...state.player }],
     actionLabels: ["当前位置"]
   };
 
-  const initKey = hintStateKey(initial, cycleLen, numExhibits, numPlates, numLights);
+  const initKey = hintStateKey(initial, cycleLen, numExhibits, numPlates, numLights, numCameras);
   visited.add(initKey);
 
   const queue = [initial];
@@ -3066,7 +3992,7 @@ function searchHintPath() {
     if (allFixed && atExit) {
       return newState;
     }
-    const sk = hintStateKey(newState, cycleLen, numExhibits, numPlates, numLights);
+    const sk = hintStateKey(newState, cycleLen, numExhibits, numPlates, numLights, numCameras);
     if (!visited.has(sk)) {
       visited.add(sk);
       queue.push(newState);
@@ -3120,7 +4046,7 @@ function searchHintPath() {
         actionLabel = "开门+" + actionLabel;
       }
 
-      const vision = getVisionAtOffset(cur.step, ns.screens, ns.visionReduced);
+      const vision = getVisionAtOffset(cur.step, ns.screens, ns.visionReduced, ns.camerasDisabled);
       if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
@@ -3153,6 +4079,8 @@ function searchHintPath() {
         if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
           ns.lightsActive[li] = true;
           ns.pendingVisionReduction = true;
+          ns.camerasDisabled = true;
+          ns.cameraShutdownTurns = Math.max(ns.cameraShutdownTurns || 0, 2);
           actionLabel += "+熄灯";
         }
       }
@@ -3163,13 +4091,14 @@ function searchHintPath() {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction);
+        const nextVisionState = cloneHintState(ns);
+        advanceHintLightAndCameraEffects(nextVisionState);
+        const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
         const curPk = pointKey(ns.pos);
         if (!nextVision.has(curPk)) {
           ns.step = nextStep;
           ns.ap = 4;
-          ns.visionReduced = ns.pendingVisionReduction;
-          ns.pendingVisionReduction = false;
+          advanceHintLightAndCameraEffects(ns);
           ns.actionLabels[ns.actionLabels.length - 1] = actionLabel + "+等待";
           const found = checkAndEnqueue(ns);
           if (found) return { path: found.path, actionLabels: found.actionLabels };
@@ -3191,13 +4120,14 @@ function searchHintPath() {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction);
+          const nextVisionState = cloneHintState(ns);
+          advanceHintLightAndCameraEffects(nextVisionState);
+          const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
           const curPk = pointKey(ns.pos);
           if (!nextVision.has(curPk)) {
             ns.step = nextStep;
             ns.ap = 4;
-            ns.visionReduced = ns.pendingVisionReduction;
-            ns.pendingVisionReduction = false;
+            advanceHintLightAndCameraEffects(ns);
             ns.actionLabels[ns.actionLabels.length - 1] = "修复展柜+等待";
             const found = checkAndEnqueue(ns);
             if (found) return { path: found.path, actionLabels: found.actionLabels };
@@ -3211,14 +4141,15 @@ function searchHintPath() {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getVisionAtOffset(nextStep, cur.screens, cur.pendingVisionReduction);
+      const nextVisionState = cloneHintState(cur);
+      advanceHintLightAndCameraEffects(nextVisionState);
+      const nextVision = getVisionAtOffset(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
       const curPk = pointKey(cur.pos);
       if (!nextVision.has(curPk)) {
         const ns = cloneHintState(cur);
         ns.step = nextStep;
         ns.ap = 4;
-        ns.visionReduced = ns.pendingVisionReduction;
-        ns.pendingVisionReduction = false;
+        advanceHintLightAndCameraEffects(ns);
         ns.path.push({ ...ns.pos });
         ns.actionLabels.push("等待回合");
         const found = checkAndEnqueue(ns);
@@ -3241,7 +4172,10 @@ const ACHIEVEMENT_DEFS = [
   { id: "no_wait_all", name: "风驰电掣", desc: "在所有正式关卡无等待通关", icon: "🌪️" },
   { id: "min_keys", name: "节俭达人", desc: "累计使用钥匙不超过 5 次通关 3 个关卡", icon: "🔑" },
   { id: "survivor", name: "越挫越勇", desc: "累计失败 10 次后仍成功通关", icon: "💪" },
-  { id: "master", name: "博物馆大师", desc: "每个正式关卡都达成最少回合通关", icon: "👑" }
+  { id: "master", name: "博物馆大师", desc: "每个正式关卡都达成最少回合通关", icon: "👑" },
+  { id: "first_objective", name: "目标达成", desc: "首次完成任意展厅目标", icon: "🎯" },
+  { id: "all_objectives_one", name: "全目标达人", desc: "在单个关卡完成所有展厅目标", icon: "⭐" },
+  { id: "all_objectives_all", name: "完美展厅", desc: "在所有正式关卡完成所有展厅目标", icon: "🏅" }
 ];
 
 const FAILURE_REASONS = {
@@ -3261,6 +4195,7 @@ function defaultAchievementData() {
       totalKeysUsed: 0,
       totalActions: 0,
       totalTurns: 0,
+      totalObjectivesCompleted: 0,
       failureReasons: { guard_sight: 0, guard_turn: 0, other: 0 }
     },
     achievements: {}
@@ -3273,9 +4208,28 @@ function loadAchievements() {
     if (raw) {
       const data = JSON.parse(raw);
       const def = defaultAchievementData();
+      const levels = {};
+      if (data.levels) {
+        Object.keys(data.levels).forEach(key => {
+          const l = data.levels[key];
+          levels[key] = {
+            bestTurns: l.bestTurns !== undefined ? l.bestTurns : null,
+            bestActions: l.bestActions !== undefined ? l.bestActions : null,
+            totalKeysUsed: l.totalKeysUsed || 0,
+            wins: l.wins || 0,
+            noWait: l.noWait || false,
+            completedObjectives: l.completedObjectives || []
+          };
+        });
+      }
       return {
-        levels: data.levels || def.levels,
-        overall: { ...def.overall, ...(data.overall || {}), failureReasons: { ...def.overall.failureReasons, ...((data.overall || {}).failureReasons || {}) } },
+        levels,
+        overall: {
+          ...def.overall,
+          ...(data.overall || {}),
+          failureReasons: { ...def.overall.failureReasons, ...((data.overall || {}).failureReasons || {}) },
+          totalObjectivesCompleted: (data.overall && data.overall.totalObjectivesCompleted) || 0
+        },
         achievements: data.achievements || def.achievements
       };
     }
@@ -3346,11 +4300,15 @@ function updateStatsOnWin(levelIndex) {
       bestActions: null,
       totalKeysUsed: 0,
       wins: 0,
-      noWait: false
+      noWait: false,
+      completedObjectives: []
     };
   }
 
   const ls = achievementState.levels[key];
+  if (!Array.isArray(ls.completedObjectives)) {
+    ls.completedObjectives = [];
+  }
   ls.wins += 1;
   ls.totalKeysUsed += stats.keysUsed;
 
@@ -3364,10 +4322,18 @@ function updateStatsOnWin(levelIndex) {
     ls.noWait = true;
   }
 
+  const completedObj = evaluateObjectives(levelIndex);
+  const prevObjCount = ls.completedObjectives.length;
+  const objSet = new Set(ls.completedObjectives);
+  completedObj.forEach(obj => objSet.add(obj));
+  ls.completedObjectives = Array.from(objSet);
+  const newObjCount = ls.completedObjectives.length - prevObjCount;
+
   achievementState.overall.totalWins += 1;
   achievementState.overall.totalKeysUsed += stats.keysUsed;
   achievementState.overall.totalActions += stats.actions;
   achievementState.overall.totalTurns += stats.turns;
+  achievementState.overall.totalObjectivesCompleted += newObjCount;
 
   checkAchievements();
   saveAchievements();
@@ -3387,7 +4353,8 @@ function updateStatsOnFail(levelIndex, reason) {
         bestActions: null,
         totalKeysUsed: 0,
         wins: 0,
-        noWait: false
+        noWait: false,
+        completedObjectives: []
       };
     }
   }
@@ -3427,6 +4394,27 @@ function checkAchievements() {
     return ls && ls.bestTurns !== null && ls.wins >= 1;
   });
   if (allBestTurns) unlock("master");
+
+  const totalObjectives = achievementState.overall.totalObjectivesCompleted;
+  if (totalObjectives >= 1) unlock("first_objective");
+
+  const anyAllObjectives = levels.some((_, i) => {
+    const levelObj = getLevelObjectives(i);
+    if (levelObj.length === 0) return false;
+    const ls = achievementState.levels[String(i)];
+    if (!ls || !ls.completedObjectives) return false;
+    return levelObj.every(obj => ls.completedObjectives.includes(obj));
+  });
+  if (anyAllObjectives) unlock("all_objectives_one");
+
+  const allAllObjectives = levels.length > 0 && levels.every((_, i) => {
+    const levelObj = getLevelObjectives(i);
+    if (levelObj.length === 0) return true;
+    const ls = achievementState.levels[String(i)];
+    if (!ls || !ls.completedObjectives) return false;
+    return levelObj.every(obj => ls.completedObjectives.includes(obj));
+  });
+  if (allAllObjectives) unlock("all_objectives_all");
 }
 
 function openAchievement() {
@@ -3451,15 +4439,40 @@ function renderLevelStats() {
   levels.forEach((level, index) => {
     const key = String(index);
     const ls = achievementState.levels[key];
+    const levelObj = getLevelObjectives(index);
     const card = document.createElement("div");
     card.className = "level-stat-card";
 
     if (!ls || ls.wins === 0) {
+      let objectivesHtml = "";
+      if (levelObj.length > 0) {
+        const objItems = levelObj.map(objType => {
+          const def = OBJECTIVE_DEFS[objType];
+          return `<span class="stat-objective incomplete" title="${def.desc}">${def.icon} ${def.name}</span>`;
+        }).join("");
+        objectivesHtml = `<div class="stat-objectives">${objItems}</div>`;
+      }
       card.innerHTML = `
         <h4>关卡${level.name}</h4>
         <p class="not-played">尚未通关</p>
+        ${objectivesHtml}
       `;
     } else {
+      let objectivesHtml = "";
+      if (levelObj.length > 0) {
+        const completedCount = ls.completedObjectives ? ls.completedObjectives.length : 0;
+        const objItems = levelObj.map(objType => {
+          const def = OBJECTIVE_DEFS[objType];
+          const isCompleted = ls.completedObjectives && ls.completedObjectives.includes(objType);
+          return `<span class="stat-objective ${isCompleted ? 'completed' : 'incomplete'}" title="${def.desc}">${def.icon} ${def.name}</span>`;
+        }).join("");
+        objectivesHtml = `
+          <div class="stat-objectives-header">
+            展厅目标：<strong>${completedCount}/${levelObj.length}</strong>
+          </div>
+          <div class="stat-objectives">${objItems}</div>
+        `;
+      }
       card.innerHTML = `
         <h4>关卡${level.name}</h4>
         <p>通关次数：<strong>${ls.wins}</strong></p>
@@ -3467,6 +4480,7 @@ function renderLevelStats() {
         <p>最少行动：<strong>${ls.bestActions}</strong></p>
         <p>累计使用钥匙：<strong>${ls.totalKeysUsed}</strong></p>
         <p>${ls.noWait ? '<span class="no-wait">✓ 无等待通关记录</span>' : '无等待通关：未达成'}</p>
+        ${objectivesHtml}
       `;
     }
     achievementLevelStatsEl.appendChild(card);
@@ -3479,6 +4493,11 @@ function renderOverallStats() {
   const winRate = o.totalWins + o.totalFailures > 0
     ? Math.round((o.totalWins / (o.totalWins + o.totalFailures)) * 100)
     : 0;
+
+  let totalLevelObjectives = 0;
+  levels.forEach((_, i) => {
+    totalLevelObjectives += getLevelObjectives(i).length;
+  });
 
   achievementOverallEl.innerHTML = `
     <div class="overall-stat-card">
@@ -3493,6 +4512,10 @@ function renderOverallStats() {
       <span class="stat-label">总失败次数</span>
       <span class="stat-value">${o.totalFailures}</span>
       <span class="stat-sub">胜率 ${winRate}%</span>
+    </div>
+    <div class="overall-stat-card">
+      <span class="stat-label">展厅目标完成</span>
+      <span class="stat-value">${o.totalObjectivesCompleted}/${totalLevelObjectives}</span>
     </div>
     <div class="overall-stat-card">
       <span class="stat-label">累计行动数</span>
@@ -4032,10 +5055,11 @@ function getGuardVisionAtStepWithScreensSimple(guards, step, walls, screens) {
 
 function solveLevelDetailed(level) {
   const { walls, doors, keys: keyItems, exhibits, guards, player: startPos, exit } = level;
-  const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   const pressurePlates = mechanisms.pressurePlates || [];
   const screens = mechanisms.screens || [];
   const lights = mechanisms.lights || [];
+  const cameras = mechanisms.cameras || [];
 
   const numExhibits = exhibits.length;
   const numDoors = doors.length;
@@ -4043,16 +5067,66 @@ function solveLevelDetailed(level) {
   const numLights = lights.length;
   const cycleLen = getGuardCycleLength(guards);
 
+  function getCameraVisionForSolver(screenList, visionReduced, camerasDisabled) {
+    const vision = new Set();
+    if (camerasDisabled) return vision;
+    const wallSet = new Set(walls);
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const camRange = visionReduced ? 3 : 6;
+    cameras.forEach(cam => {
+      if (cam.disabled) return;
+      const vec = cameraDirToVector(cam.direction);
+      for (let i = 1; i <= camRange; i++) {
+        const p = { x: cam.x + vec.dx * i, y: cam.y + vec.dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
+  }
+
   function stateKeyObj(s) {
     const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
     const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
     const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
     const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
     const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}`;
+    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}|${s.cameraShutdownTurns || 0}`;
   }
 
-  function getVisionAtStepObj(step, screenList, visionReduced) {
+  function advanceSolverLightAndCameraEffects(s) {
+    s.visionReduced = s.pendingVisionReduction;
+    s.pendingVisionReduction = false;
+    if (s.cameraShutdownTurns > 0) {
+      s.cameraShutdownTurns -= 1;
+      s.camerasDisabled = s.cameraShutdownTurns > 0;
+    }
+  }
+
+  function cloneSolverState(s) {
+    return {
+      pos: { ...s.pos },
+      keys: s.keys,
+      keysTaken: [...s.keysTaken],
+      doorsOpen: [...s.doorsOpen],
+      fixed: [...s.fixed],
+      plateTriggered: [...s.plateTriggered],
+      screens: s.screens.map(sc => ({ ...sc })),
+      lightsActive: [...s.lightsActive],
+      visionReduced: s.visionReduced,
+      pendingVisionReduction: s.pendingVisionReduction,
+      camerasDisabled: s.camerasDisabled,
+      cameraShutdownTurns: s.cameraShutdownTurns,
+      step: s.step,
+      ap: s.ap,
+      path: s.path.map(p => ({ ...p })),
+      actions: [...s.actions]
+    };
+  }
+
+  function getVisionAtStepObj(step, screenList, visionReduced, camerasDisabled) {
     const vision = new Set();
     const wallSet = new Set(walls);
     const screenSet = new Set(screenList.map(s => pointKey(s)));
@@ -4071,6 +5145,8 @@ function solveLevelDetailed(level) {
         vision.add(pointKey(p));
       }
     });
+    const camVision = getCameraVisionForSolver(screenList, visionReduced, camerasDisabled);
+    camVision.forEach(k => vision.add(k));
     return vision;
   }
 
@@ -4086,6 +5162,8 @@ function solveLevelDetailed(level) {
     lightsActive: new Array(numLights).fill(false),
     visionReduced: false,
     pendingVisionReduction: false,
+    camerasDisabled: false,
+    cameraShutdownTurns: 0,
     step: 0,
     ap: 4,
     path: [{ ...startPos }],
@@ -4141,6 +5219,8 @@ function solveLevelDetailed(level) {
         lightsActive: [...cur.lightsActive],
         visionReduced: cur.visionReduced,
         pendingVisionReduction: cur.pendingVisionReduction,
+        camerasDisabled: cur.camerasDisabled,
+        cameraShutdownTurns: cur.cameraShutdownTurns,
         step: cur.step,
         ap: cur.ap - 1,
         path: [...cur.path, { ...newPos }],
@@ -4170,7 +5250,7 @@ function solveLevelDetailed(level) {
         actionLabel = "开门+" + actionLabel;
       }
 
-      const vision = getVisionAtStepObj(cur.step, ns.screens, ns.visionReduced);
+      const vision = getVisionAtStepObj(cur.step, ns.screens, ns.visionReduced, ns.camerasDisabled);
       if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
@@ -4201,6 +5281,8 @@ function solveLevelDetailed(level) {
         if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
           ns.lightsActive[li] = true;
           ns.pendingVisionReduction = true;
+          ns.camerasDisabled = true;
+          ns.cameraShutdownTurns = Math.max(ns.cameraShutdownTurns || 0, 2);
           actionLabel += "+熄灯";
         }
       }
@@ -4209,12 +5291,13 @@ function solveLevelDetailed(level) {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction);
+        const nextVisionState = cloneSolverState(ns);
+        advanceSolverLightAndCameraEffects(nextVisionState);
+        const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
         if (!nextVision.has(pk)) {
           ns.step = nextStep;
           ns.ap = 4;
-          ns.visionReduced = ns.pendingVisionReduction;
-          ns.pendingVisionReduction = false;
+          advanceSolverLightAndCameraEffects(ns);
           ns.actions[ns.actions.length - 1] = actionLabel + "+等待";
           const sk = stateKeyObj(ns);
           if (!visited.has(sk)) {
@@ -4255,6 +5338,8 @@ function solveLevelDetailed(level) {
           lightsActive: [...cur.lightsActive],
           visionReduced: cur.visionReduced,
           pendingVisionReduction: cur.pendingVisionReduction,
+          camerasDisabled: cur.camerasDisabled,
+          cameraShutdownTurns: cur.cameraShutdownTurns,
           step: cur.step,
           ap: cur.ap - 1,
           path: [...cur.path, { ...cur.pos }],
@@ -4264,13 +5349,14 @@ function solveLevelDetailed(level) {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction);
+          const nextVisionState = cloneSolverState(ns);
+          advanceSolverLightAndCameraEffects(nextVisionState);
+          const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
           const pk = pointKey(ns.pos);
           if (!nextVision.has(pk)) {
             ns.step = nextStep;
             ns.ap = 4;
-            ns.visionReduced = ns.pendingVisionReduction;
-            ns.pendingVisionReduction = false;
+            advanceSolverLightAndCameraEffects(ns);
             ns.actions[ns.actions.length - 1] = "修复展柜+等待";
             const sk = stateKeyObj(ns);
             if (!visited.has(sk)) {
@@ -4300,7 +5386,9 @@ function solveLevelDetailed(level) {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getVisionAtStepObj(nextStep, cur.screens, cur.pendingVisionReduction);
+      const nextVisionState = cloneSolverState(cur);
+      advanceSolverLightAndCameraEffects(nextVisionState);
+      const nextVision = getVisionAtStepObj(nextStep, nextVisionState.screens, nextVisionState.visionReduced, nextVisionState.camerasDisabled);
       const pk = pointKey(cur.pos);
       if (!nextVision.has(pk)) {
         const ns = {
@@ -4312,13 +5400,16 @@ function solveLevelDetailed(level) {
           plateTriggered: [...cur.plateTriggered],
           screens: cur.screens.map(sc => ({ ...sc })),
           lightsActive: [...cur.lightsActive],
-          visionReduced: cur.pendingVisionReduction,
-          pendingVisionReduction: false,
+          visionReduced: cur.visionReduced,
+          pendingVisionReduction: cur.pendingVisionReduction,
+          camerasDisabled: cur.camerasDisabled,
+          cameraShutdownTurns: cur.cameraShutdownTurns,
           step: nextStep,
           ap: 4,
           path: [...cur.path, { ...cur.pos }],
           actions: [...cur.actions, "等待回合"]
         };
+        advanceSolverLightAndCameraEffects(ns);
         const sk = stateKeyObj(ns);
         if (!visited.has(sk)) {
           visited.add(sk);
