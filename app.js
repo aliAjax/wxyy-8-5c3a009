@@ -650,7 +650,12 @@ function snapshotState(action) {
       } : { pressurePlates: [], screens: [], lights: [], cameras: [] }
     },
     log: [...state.log],
-    gameplayMetrics: { ...gameplayMetrics }
+    gameplayMetrics: { ...gameplayMetrics },
+    hintState: {
+      active: hintState.active,
+      path: hintState.path.map(p => ({ ...p })),
+      actionLabels: [...hintState.actionLabels]
+    }
   };
 }
 
@@ -716,19 +721,36 @@ function restoreStateFromSnapshot(snapshot) {
   if (snapshot.gameplayMetrics) {
     Object.assign(gameplayMetrics, snapshot.gameplayMetrics);
   }
+
+  if (snapshot.hintState) {
+    hintState.active = snapshot.hintState.active;
+    hintState.path = snapshot.hintState.path.map(p => ({ ...p }));
+    hintState.actionLabels = [...snapshot.hintState.actionLabels];
+  } else {
+    hintState.active = false;
+    hintState.path = [];
+    hintState.actionLabels = [];
+  }
 }
 
 function undo() {
   if (!canUndo()) return;
 
-  clearHint();
-
   state.history.pop();
 
   const snapshot = state.history[state.history.length - 1];
+  const undoAction = snapshot.action;
   restoreStateFromSnapshot(snapshot);
 
-  addLog(`↶ 撤销了"${snapshot.action}"操作`);
+  state.log.push(`↶ 撤销了"${undoAction}"操作`);
+  state.log = state.log.slice(-28);
+
+  snapshot.log = [...state.log];
+  snapshot.hintState = {
+    active: hintState.active,
+    path: hintState.path.map(p => ({ ...p })),
+    actionLabels: [...hintState.actionLabels]
+  };
 
   render();
 }
