@@ -15,6 +15,33 @@ const GUARD_BEHAVIOR = {
   TRACE: "trace"
 };
 
+const CAMERA_DIRECTION = {
+  UP: "up",
+  DOWN: "down",
+  LEFT: "left",
+  RIGHT: "right"
+};
+
+function cameraDirToVector(direction) {
+  switch (direction) {
+    case CAMERA_DIRECTION.UP: return { dx: 0, dy: -1 };
+    case CAMERA_DIRECTION.DOWN: return { dx: 0, dy: 1 };
+    case CAMERA_DIRECTION.LEFT: return { dx: -1, dy: 0 };
+    case CAMERA_DIRECTION.RIGHT: return { dx: 1, dy: 0 };
+    default: return { dx: 1, dy: 0 };
+  }
+}
+
+function getCameraDirectionLabel(direction) {
+  switch (direction) {
+    case CAMERA_DIRECTION.UP: return "↑";
+    case CAMERA_DIRECTION.DOWN: return "↓";
+    case CAMERA_DIRECTION.LEFT: return "←";
+    case CAMERA_DIRECTION.RIGHT: return "→";
+    default: return "→";
+  }
+}
+
 const ALERT_LEVEL = {
   CALM: { name: "平静", value: 0, color: "#4f7f6a" },
   CURIOUS: { name: "警觉", value: 1, color: "#d7bd77" },
@@ -146,6 +173,28 @@ const levels = [
       { path: [{ x: 6, y: 0 }, { x: 6, y: 1 }, { x: 7, y: 1 }, { x: 7, y: 0 }], step: 0, behavior: "trace", hearingRange: 4 }
     ],
     exit: { x: 7, y: 6 }
+  },
+  {
+    name: "七",
+    walls: ["3,1", "3,2", "3,5", "3,6", "6,0", "6,1", "6,5", "6,6"],
+    doors: [{ x: 3, y: 3, open: false }],
+    keys: [{ x: 0, y: 0 }],
+    exhibits: [{ x: 7, y: 3, fixed: false }],
+    player: { x: 0, y: 6 },
+    guards: [
+      { path: [{ x: 4, y: 0 }, { x: 5, y: 0 }, { x: 5, y: 1 }, { x: 4, y: 1 }], step: 0, behavior: "fixed", hearingRange: 3 },
+      { path: [{ x: 4, y: 5 }, { x: 5, y: 5 }, { x: 5, y: 6 }, { x: 4, y: 6 }], step: 0, behavior: "investigate", hearingRange: 4 }
+    ],
+    exit: { x: 7, y: 0 },
+    mechanisms: {
+      pressurePlates: [{ x: 1, y: 3, targetDoors: [{ x: 3, y: 3 }], triggered: false }],
+      screens: [{ x: 4, y: 3 }],
+      lights: [{ x: 1, y: 0, active: false }],
+      cameras: [
+        { x: 2, y: 3, direction: "right", disabled: false },
+        { x: 5, y: 2, direction: "left", disabled: false }
+      ]
+    }
   }
 ];
 
@@ -167,6 +216,12 @@ const chapters = [
     name: "行为编排",
     description: "遭遇拥有复杂行为模式的巡逻员",
     levelIndices: [4, 5]
+  },
+  {
+    id: 3,
+    name: "安保警戒",
+    description: "遭遇安保摄像头，学会利用熄灯开关与屏风",
+    levelIndices: [6]
   }
 ];
 
@@ -176,7 +231,8 @@ const levelDescriptions = [
   { brief: "两个展柜与会调查声响的巡逻员", optimalActions: 24 },
   { brief: "利用压力板开门，小心会追踪开门痕迹的守卫", optimalActions: 18 },
   { brief: "两个展柜、多个门锁，巡逻员会调查声响并追踪痕迹", optimalActions: 32 },
-  { brief: "三个巡逻员的终极挑战：往返巡逻、听觉调查、痕迹追踪", optimalActions: 38 }
+  { brief: "三个巡逻员的终极挑战：往返巡逻、听觉调查、痕迹追踪", optimalActions: 38 },
+  { brief: "安保摄像头守护展柜，利用熄灯开关和屏风绕过监视", optimalActions: 28 }
 ];
 
 const CHAPTER_STAR_KEY = "museum_chapter_stars";
@@ -586,8 +642,9 @@ function snapshotState(action) {
       mechanisms: m ? {
         pressurePlates: m.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) })),
         screens: m.screens.map(s => ({ ...s })),
-        lights: m.lights.map(l => ({ ...l }))
-      } : { pressurePlates: [], screens: [], lights: [] }
+        lights: m.lights.map(l => ({ ...l })),
+        cameras: m.cameras ? m.cameras.map(c => ({ ...c })) : []
+      } : { pressurePlates: [], screens: [], lights: [], cameras: [] }
     },
     log: [...state.log]
   };
@@ -599,10 +656,11 @@ function recordHistory(action) {
 
 function freshState(index) {
   const level = cloneLevel(index);
-  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
   level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
   level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
+  level.mechanisms.cameras = level.mechanisms.cameras ? level.mechanisms.cameras.map((c) => ({ ...c, disabled: false })) : [];
   level.guards = initializeGuards(level.guards);
   level.openedDoors = [];
   return {
@@ -652,10 +710,11 @@ function freshStateFromLevel(levelData) {
   level.exhibits = level.exhibits.map((e) => ({ ...e, fixed: false }));
   level.doors = level.doors.map((d) => ({ ...d, open: false }));
   level.guards = initializeGuards(level.guards || []);
-  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   level.mechanisms.pressurePlates = level.mechanisms.pressurePlates.map((p) => ({ ...p, triggered: false }));
   level.mechanisms.screens = level.mechanisms.screens.map((s) => ({ ...s }));
   level.mechanisms.lights = level.mechanisms.lights.map((l) => ({ ...l, active: false }));
+  level.mechanisms.cameras = level.mechanisms.cameras ? level.mechanisms.cameras.map((c) => ({ ...c, disabled: false })) : [];
   level.openedDoors = [];
   return {
     levelIndex: -1,
@@ -1515,6 +1574,21 @@ function move(dx, dy) {
     fail("巡逻员发现了你的手电反光。");
     return;
   }
+  if (seenByCamera()) {
+    if (tutorialState.active) {
+      showTutorialError("seenByGuard", true);
+      restartTutorialStep("guard");
+      return;
+    }
+    state.alertLevel = Math.min(3, state.alertLevel + 1);
+    if (state.alertLevel >= 3) {
+      recordHistory(action);
+      fail("安保摄像头捕捉到了你的身影，警报拉响！");
+      return;
+    }
+    addLog("⚠️ 你被安保摄像头拍到了，警觉程度上升！");
+    updateGlobalAlertLevel();
+  }
 
   if (tutorialState.active) {
     checkTutorialStep();
@@ -1614,6 +1688,21 @@ function endTurn() {
     recordHistory("等待回合");
     fail("换班瞬间被巡逻员撞见。");
     return;
+  }
+  if (seenByCamera()) {
+    if (tutorialState.active) {
+      showTutorialError("seenByGuard", true);
+      restartTutorialStep("guard");
+      return;
+    }
+    state.alertLevel = Math.min(3, state.alertLevel + 1);
+    if (state.alertLevel >= 3) {
+      recordHistory("等待回合");
+      fail("安保摄像头捕捉到了你的身影，警报拉响！");
+      return;
+    }
+    addLog("⚠️ 你被安保摄像头拍到了，警觉程度上升！");
+    updateGlobalAlertLevel();
   }
 
   if (tutorialState.active) {
@@ -1856,13 +1945,10 @@ function fail(reason) {
   render();
 }
 
-function seenByGuard() {
-  return visionSet().has(pointKey(state.player));
-}
-
-function visionSet() {
+function guardVisionSet() {
   const set = new Set();
   const m = getMechanisms();
+  const wallSet = new Set(state.level.walls);
   const screenSet = new Set(m.screens.map(s => pointKey(s)));
   state.level.guards.forEach((guard) => {
     const pos = getGuardCurrentPosition(guard);
@@ -1875,16 +1961,65 @@ function visionSet() {
     const dy = dir.dy;
     for (let i = 1; i <= maxRange; i += 1) {
       const point = { x: pos.x + dx * i, y: pos.y + dy * i };
-      if (!inside(point) || isWall(point) || screenSet.has(pointKey(point))) break;
+      if (!inside(point) || wallSet.has(pointKey(point)) || screenSet.has(pointKey(point))) break;
       set.add(pointKey(point));
     }
   });
   return set;
 }
 
+function cameraVisionSet() {
+  const m = getMechanisms();
+  const wallSet = new Set(state.level.walls);
+  const screenSet = new Set(m.screens.map(s => pointKey(s)));
+  const cameras = m.cameras || [];
+  return getCameraVisionSet(cameras, wallSet, screenSet, state.visionReduced);
+}
+
+function seenByGuard() {
+  return guardVisionSet().has(pointKey(state.player));
+}
+
+function seenByCamera() {
+  const camVision = cameraVisionSet();
+  const playerKey = pointKey(state.player);
+  if (camVision.has(playerKey)) {
+    const m = getMechanisms();
+    const cameras = m.cameras || [];
+    for (const cam of cameras) {
+      if (!cam.disabled && samePoint(cam, state.player)) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+function getCameraVisionSet(cameras, wallSet, screenSet, visionReduced) {
+  const set = new Set();
+  const maxRange = visionReduced ? 3 : 6;
+  cameras.forEach((camera) => {
+    if (camera.disabled) return;
+    const dir = cameraDirToVector(camera.direction);
+    for (let i = 1; i <= maxRange; i += 1) {
+      const point = { x: camera.x + dir.dx * i, y: camera.y + dir.dy * i };
+      if (!inside(point) || wallSet.has(pointKey(point)) || screenSet.has(pointKey(point))) break;
+      set.add(pointKey(point));
+    }
+  });
+  return set;
+}
+
+function visionSet() {
+  const set = guardVisionSet();
+  const camVision = cameraVisionSet();
+  camVision.forEach(k => set.add(k));
+  return set;
+}
+
 function visionSetForSnapshot(snapshot) {
   const set = new Set();
-  const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
+  const wallSet = new Set(snapshot.level.walls);
   const screenSet = new Set(sm.screens.map(s => pointKey(s)));
   const maxRange = snapshot.visionReduced ? 1 : 2;
   snapshot.level.guards.forEach((guard) => {
@@ -1925,6 +2060,9 @@ function visionSetForSnapshot(snapshot) {
       set.add(pointKey(point));
     }
   });
+  const cameras = sm.cameras || [];
+  const cameraVision = getCameraVisionSet(cameras, wallSet, screenSet, snapshot.visionReduced);
+  cameraVision.forEach(k => set.add(k));
   return set;
 }
 
@@ -1957,7 +2095,7 @@ function pointKey(point) {
 }
 
 function getMechanisms() {
-  return state.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  return state.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
 }
 
 function screenAt(point) {
@@ -1973,6 +2111,15 @@ function pressurePlateAt(point) {
 function lightAt(point) {
   const m = getMechanisms();
   return m.lights.find(l => samePoint(l, point)) || null;
+}
+
+function cameraAt(point) {
+  const m = getMechanisms();
+  return (m.cameras || []).find(c => samePoint(c, point)) || null;
+}
+
+function isCamera(point) {
+  return cameraAt(point) !== null;
 }
 
 function isScreen(point) {
@@ -2015,14 +2162,28 @@ function activatePressurePlates() {
 
 function activateLights() {
   const m = getMechanisms();
+  let anyLightActivated = false;
   m.lights.forEach(light => {
     if (light.active) return;
     if (samePoint(state.player, light)) {
       light.active = true;
       state.pendingVisionReduction = true;
-      addLog("按下了熄灯开关，巡逻员下一回合视野会缩短。");
+      anyLightActivated = true;
     }
   });
+  if (anyLightActivated) {
+    const cameras = m.cameras || [];
+    cameras.forEach(cam => {
+      if (!cam.disabled) {
+        cam.disabled = true;
+      }
+    });
+    if (cameras.length > 0) {
+      addLog("按下了熄灯开关，巡逻员视野缩短，安保摄像头也被暂时关闭。");
+    } else {
+      addLog("按下了熄灯开关，巡逻员下一回合视野会缩短。");
+    }
+  }
 }
 
 function addLog(text) {
@@ -2149,11 +2310,20 @@ function renderBoard() {
         if (light.active) tile.classList.add("active");
         label.textContent = light.active ? "熄灯✓" : "熄灯";
       }
+      const cam = (m.cameras || []).find(c => samePoint(c, point));
+      if (cam) {
+        tile.classList.add("camera");
+        if (cam.disabled) tile.classList.add("camera-disabled");
+        tile.classList.add(`camera-${cam.direction}`);
+        label.textContent = cam.disabled ? "摄像✗" : `摄像${getCameraDirectionLabel(cam.direction)}`;
+      }
       if (samePoint(state.level.exit, point)) {
         tile.classList.add("exit");
         label.textContent = "出口";
       }
       if (vision.has(pointKey(point))) tile.classList.add("vision");
+      const camVision = cameraVisionSet();
+      if (camVision.has(pointKey(point))) tile.classList.add("camera-vision");
       if (investigateTargets.has(pointKey(point))) tile.classList.add("investigate-target");
       if (traceTargets.has(pointKey(point))) tile.classList.add("trace-target");
 
@@ -2325,7 +2495,7 @@ function renderReplayStep() {
         tile.classList.add(exhibit.fixed ? "fixed-exhibit" : "exhibit");
         label.textContent = exhibit.fixed ? "已修" : "展柜";
       }
-      const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+      const sm = snapshot.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
       const plate = sm.pressurePlates.find(p => samePoint(p, point));
       if (plate) {
         tile.classList.add("pressure-plate");
@@ -2343,11 +2513,25 @@ function renderReplayStep() {
         if (light.active) tile.classList.add("active");
         label.textContent = light.active ? "熄灯✓" : "熄灯";
       }
+      const cam = (sm.cameras || []).find(c => samePoint(c, point));
+      if (cam) {
+        tile.classList.add("camera");
+        if (cam.disabled) tile.classList.add("camera-disabled");
+        tile.classList.add(`camera-${cam.direction}`);
+        label.textContent = cam.disabled ? "摄像✗" : `摄像${getCameraDirectionLabel(cam.direction)}`;
+      }
       if (snapshot.level.exit && samePoint(snapshot.level.exit, point)) {
         tile.classList.add("exit");
         label.textContent = "出口";
       }
       if (vision.has(pointKey(point))) tile.classList.add("vision");
+      const snapshotCamVision = getCameraVisionSet(
+        sm.cameras || [],
+        new Set(snapshot.level.walls),
+        new Set((sm.screens || []).map(s => pointKey(s))),
+        snapshot.visionReduced
+      );
+      if (snapshotCamVision.has(pointKey(point))) tile.classList.add("camera-vision");
       if (guards.some((guard) => samePoint(guard, point))) tile.classList.add("guard");
       if (samePoint(snapshot.player, point)) tile.classList.add("player");
       tile.appendChild(label);
@@ -3338,6 +3522,7 @@ function cloneHintState(s) {
     lightsActive: [...s.lightsActive],
     visionReduced: s.visionReduced,
     pendingVisionReduction: s.pendingVisionReduction,
+    camerasDisabled: s.camerasDisabled,
     step: s.step,
     ap: s.ap,
     path: [...s.path],
@@ -3345,31 +3530,53 @@ function cloneHintState(s) {
   };
 }
 
-function hintStateKey(s, cycleLen, numExhibits, numPlates, numLights) {
+function hintStateKey(s, cycleLen, numExhibits, numPlates, numLights, numCameras) {
   const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
   const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
   const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
   const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
   const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}`;
+  return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}`;
 }
 
 function searchHintPath() {
   const { walls, doors, keys: keyItems, exhibits, guards, exit } = state.level;
-  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const mechanisms = state.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   const pressurePlates = mechanisms.pressurePlates || [];
   const screens = mechanisms.screens || [];
   const lights = mechanisms.lights || [];
+  const cameras = mechanisms.cameras || [];
 
   const numExhibits = exhibits.length;
   const numDoors = doors.length;
   const numPlates = pressurePlates.length;
   const numLights = lights.length;
+  const numCameras = cameras.length;
   const cycleLen = getGuardCycleLength(guards);
 
   const guardInitSteps = guards.map(g => g.step);
 
-  function getVisionAtOffset(offset, screenList, visionReduced) {
+  function getCameraVisionSetForHint(screenList, visionReduced, camerasDisabled) {
+    const vision = new Set();
+    if (camerasDisabled) return vision;
+    const wallSet = new Set(walls);
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const camRange = visionReduced ? 3 : 6;
+    cameras.forEach(cam => {
+      if (cam.disabled) return;
+      const vec = cameraDirToVector(cam.direction);
+      for (let i = 1; i <= camRange; i++) {
+        const p = { x: cam.x + vec.dx * i, y: cam.y + vec.dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
+  }
+
+  function getVisionAtOffset(offset, screenList, visionReduced, camerasDisabled) {
     const vision = new Set();
     const wallSet = new Set(walls);
     const screenSet = new Set(screenList.map(s => pointKey(s)));
@@ -3389,6 +3596,8 @@ function searchHintPath() {
         vision.add(pointKey(p));
       }
     });
+    const camVision = getCameraVisionSetForHint(screenList, visionReduced, camerasDisabled);
+    camVision.forEach(k => vision.add(k));
     return vision;
   }
 
@@ -3398,6 +3607,7 @@ function searchHintPath() {
   const currentPlateTriggered = pressurePlates.map(p => p.triggered);
   const currentScreens = screens.map(s => ({ ...s }));
   const currentLightsActive = lights.map(l => l.active);
+  const allLightsActive = currentLightsActive.length > 0 && currentLightsActive.every(a => a);
 
   const allExhibitsFixedNow = currentFixed.every(f => f);
   const atExitNow = samePoint(state.player, exit);
@@ -3417,13 +3627,14 @@ function searchHintPath() {
     lightsActive: [...currentLightsActive],
     visionReduced: state.visionReduced,
     pendingVisionReduction: state.pendingVisionReduction,
+    camerasDisabled: allLightsActive,
     step: 0,
     ap: state.ap,
     path: [{ ...state.player }],
     actionLabels: ["当前位置"]
   };
 
-  const initKey = hintStateKey(initial, cycleLen, numExhibits, numPlates, numLights);
+  const initKey = hintStateKey(initial, cycleLen, numExhibits, numPlates, numLights, numCameras);
   visited.add(initKey);
 
   const queue = [initial];
@@ -3436,7 +3647,7 @@ function searchHintPath() {
     if (allFixed && atExit) {
       return newState;
     }
-    const sk = hintStateKey(newState, cycleLen, numExhibits, numPlates, numLights);
+    const sk = hintStateKey(newState, cycleLen, numExhibits, numPlates, numLights, numCameras);
     if (!visited.has(sk)) {
       visited.add(sk);
       queue.push(newState);
@@ -3490,7 +3701,7 @@ function searchHintPath() {
         actionLabel = "开门+" + actionLabel;
       }
 
-      const vision = getVisionAtOffset(cur.step, ns.screens, ns.visionReduced);
+      const vision = getVisionAtOffset(cur.step, ns.screens, ns.visionReduced, ns.camerasDisabled);
       if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
@@ -3523,6 +3734,7 @@ function searchHintPath() {
         if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
           ns.lightsActive[li] = true;
           ns.pendingVisionReduction = true;
+          ns.camerasDisabled = true;
           actionLabel += "+熄灯";
         }
       }
@@ -3533,7 +3745,7 @@ function searchHintPath() {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction);
+        const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
         const curPk = pointKey(ns.pos);
         if (!nextVision.has(curPk)) {
           ns.step = nextStep;
@@ -3561,7 +3773,7 @@ function searchHintPath() {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction);
+          const nextVision = getVisionAtOffset(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
           const curPk = pointKey(ns.pos);
           if (!nextVision.has(curPk)) {
             ns.step = nextStep;
@@ -3581,7 +3793,7 @@ function searchHintPath() {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getVisionAtOffset(nextStep, cur.screens, cur.pendingVisionReduction);
+      const nextVision = getVisionAtOffset(nextStep, cur.screens, cur.pendingVisionReduction, cur.camerasDisabled);
       const curPk = pointKey(cur.pos);
       if (!nextVision.has(curPk)) {
         const ns = cloneHintState(cur);
@@ -4270,10 +4482,11 @@ function getGuardVisionAtStepWithScreensSimple(guards, step, walls, screens) {
 
 function solveLevelDetailed(level) {
   const { walls, doors, keys: keyItems, exhibits, guards, player: startPos, exit } = level;
-  const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   const pressurePlates = mechanisms.pressurePlates || [];
   const screens = mechanisms.screens || [];
   const lights = mechanisms.lights || [];
+  const cameras = mechanisms.cameras || [];
 
   const numExhibits = exhibits.length;
   const numDoors = doors.length;
@@ -4281,16 +4494,36 @@ function solveLevelDetailed(level) {
   const numLights = lights.length;
   const cycleLen = getGuardCycleLength(guards);
 
+  function getCameraVisionForSolver(screenList, visionReduced, camerasDisabled) {
+    const vision = new Set();
+    if (camerasDisabled) return vision;
+    const wallSet = new Set(walls);
+    const screenSet = new Set(screenList.map(s => pointKey(s)));
+    const camRange = visionReduced ? 3 : 6;
+    cameras.forEach(cam => {
+      if (cam.disabled) return;
+      const vec = cameraDirToVector(cam.direction);
+      for (let i = 1; i <= camRange; i++) {
+        const p = { x: cam.x + vec.dx * i, y: cam.y + vec.dy * i };
+        if (p.x < 0 || p.x >= BOARD_W || p.y < 0 || p.y >= BOARD_H) break;
+        if (wallSet.has(pointKey(p))) break;
+        if (screenSet.has(pointKey(p))) break;
+        vision.add(pointKey(p));
+      }
+    });
+    return vision;
+  }
+
   function stateKeyObj(s) {
     const exhibitMask = s.fixed.reduce((acc, f, i) => f ? acc | (1 << i) : acc, 0);
     const plateMask = s.plateTriggered.reduce((acc, t, i) => t ? acc | (1 << i) : acc, 0);
     const lightMask = s.lightsActive.reduce((acc, a, i) => a ? acc | (1 << i) : acc, 0);
     const doorsMask = s.doorsOpen.reduce((acc, o, i) => o ? acc | (1 << i) : acc, 0);
     const screenKey = s.screens.map(sc => `${sc.x},${sc.y}`).sort().join("|");
-    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}`;
+    return `${s.pos.x},${s.pos.y}|${s.keys}|${exhibitMask}|${s.step % cycleLen}|${s.ap}|${plateMask}|${lightMask}|${doorsMask}|${screenKey}|${s.visionReduced ? 1 : 0}|${s.camerasDisabled ? 1 : 0}`;
   }
 
-  function getVisionAtStepObj(step, screenList, visionReduced) {
+  function getVisionAtStepObj(step, screenList, visionReduced, camerasDisabled) {
     const vision = new Set();
     const wallSet = new Set(walls);
     const screenSet = new Set(screenList.map(s => pointKey(s)));
@@ -4309,6 +4542,8 @@ function solveLevelDetailed(level) {
         vision.add(pointKey(p));
       }
     });
+    const camVision = getCameraVisionForSolver(screenList, visionReduced, camerasDisabled);
+    camVision.forEach(k => vision.add(k));
     return vision;
   }
 
@@ -4324,6 +4559,7 @@ function solveLevelDetailed(level) {
     lightsActive: new Array(numLights).fill(false),
     visionReduced: false,
     pendingVisionReduction: false,
+    camerasDisabled: false,
     step: 0,
     ap: 4,
     path: [{ ...startPos }],
@@ -4379,6 +4615,7 @@ function solveLevelDetailed(level) {
         lightsActive: [...cur.lightsActive],
         visionReduced: cur.visionReduced,
         pendingVisionReduction: cur.pendingVisionReduction,
+        camerasDisabled: cur.camerasDisabled,
         step: cur.step,
         ap: cur.ap - 1,
         path: [...cur.path, { ...newPos }],
@@ -4408,7 +4645,7 @@ function solveLevelDetailed(level) {
         actionLabel = "开门+" + actionLabel;
       }
 
-      const vision = getVisionAtStepObj(cur.step, ns.screens, ns.visionReduced);
+      const vision = getVisionAtStepObj(cur.step, ns.screens, ns.visionReduced, ns.camerasDisabled);
       if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
@@ -4439,6 +4676,7 @@ function solveLevelDetailed(level) {
         if (!ns.lightsActive[li] && samePoint(ns.pos, light)) {
           ns.lightsActive[li] = true;
           ns.pendingVisionReduction = true;
+          ns.camerasDisabled = true;
           actionLabel += "+熄灯";
         }
       }
@@ -4447,7 +4685,7 @@ function solveLevelDetailed(level) {
 
       if (ns.ap <= 0) {
         const nextStep = (cur.step + 1) % cycleLen;
-        const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction);
+        const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
         if (!nextVision.has(pk)) {
           ns.step = nextStep;
           ns.ap = 4;
@@ -4493,6 +4731,7 @@ function solveLevelDetailed(level) {
           lightsActive: [...cur.lightsActive],
           visionReduced: cur.visionReduced,
           pendingVisionReduction: cur.pendingVisionReduction,
+          camerasDisabled: cur.camerasDisabled,
           step: cur.step,
           ap: cur.ap - 1,
           path: [...cur.path, { ...cur.pos }],
@@ -4502,7 +4741,7 @@ function solveLevelDetailed(level) {
 
         if (ns.ap <= 0) {
           const nextStep = (cur.step + 1) % cycleLen;
-          const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction);
+          const nextVision = getVisionAtStepObj(nextStep, ns.screens, ns.pendingVisionReduction, ns.camerasDisabled);
           const pk = pointKey(ns.pos);
           if (!nextVision.has(pk)) {
             ns.step = nextStep;
@@ -4538,7 +4777,7 @@ function solveLevelDetailed(level) {
 
     {
       const nextStep = (cur.step + 1) % cycleLen;
-      const nextVision = getVisionAtStepObj(nextStep, cur.screens, cur.pendingVisionReduction);
+      const nextVision = getVisionAtStepObj(nextStep, cur.screens, cur.pendingVisionReduction, cur.camerasDisabled);
       const pk = pointKey(cur.pos);
       if (!nextVision.has(pk)) {
         const ns = {
@@ -4552,6 +4791,7 @@ function solveLevelDetailed(level) {
           lightsActive: [...cur.lightsActive],
           visionReduced: cur.pendingVisionReduction,
           pendingVisionReduction: false,
+          camerasDisabled: cur.camerasDisabled,
           step: nextStep,
           ap: 4,
           path: [...cur.path, { ...cur.pos }],

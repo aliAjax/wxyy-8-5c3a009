@@ -173,12 +173,14 @@
             <button type="button" class="tool-btn" data-tool="pressurePlate">压力板</button>
             <button type="button" class="tool-btn" data-tool="screen">屏风</button>
             <button type="button" class="tool-btn" data-tool="light">熄灯开关</button>
+            <button type="button" class="tool-btn" data-tool="camera">安保摄像头</button>
             <button type="button" class="tool-btn" data-tool="eraser">橡皮擦</button>
           </div>
           <div class="editor-info">
             <p>点击格子放置/移除元素</p>
             <p>巡逻员路径：依次点击格子形成路径</p>
             <p>再次点击巡逻员工具开始新路径</p>
+            <p>摄像头：放置后可在右侧配置扫描方向</p>
           </div>
         </aside>
 
@@ -199,6 +201,7 @@
             <p>压力板：<span id="editorPlateCount">0</span></p>
             <p>屏风：<span id="editorScreenCount">0</span></p>
             <p>熄灯开关：<span id="editorLightCount">0</span></p>
+            <p>安保摄像头：<span id="editorCameraCount">0</span></p>
           </div>
           <div class="editor-level-name">
             <label>关卡名称：</label>
@@ -207,6 +210,10 @@
           <div class="guard-behavior-config" id="guardBehaviorConfig">
             <h4>巡逻员行为配置</h4>
             <div id="guardBehaviorList" class="guard-behavior-list"></div>
+          </div>
+          <div class="camera-config" id="cameraConfig">
+            <h4>安保摄像头配置</h4>
+            <div id="cameraList" class="camera-list"></div>
           </div>
           <div class="editor-warning" id="editorWarning"></div>
           <div class="editor-diagnosis" id="editorDiagnosis">

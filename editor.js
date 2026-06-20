@@ -19,6 +19,7 @@ const editorGuardCountEl = document.getElementById("editorGuardCount");
 const editorPlateCountEl = document.getElementById("editorPlateCount");
 const editorScreenCountEl = document.getElementById("editorScreenCount");
 const editorLightCountEl = document.getElementById("editorLightCount");
+const editorCameraCountEl = document.getElementById("editorCameraCount");
 
 const editorDiagnoseBtn = document.getElementById("editorDiagnoseBtn");
 const diagnosisStatusEl = document.getElementById("diagnosisStatus");
@@ -48,7 +49,15 @@ const GUARD_BEHAVIOR_OPTIONS = [
   { value: "trace", label: "痕迹追踪", desc: "发现开门痕迹后改变路线" }
 ];
 
+const CAMERA_DIRECTION_OPTIONS = [
+  { value: "up", label: "↑ 向上" },
+  { value: "down", label: "↓ 向下" },
+  { value: "left", label: "← 向左" },
+  { value: "right", label: "→ 向右" }
+];
+
 const guardBehaviorListEl = document.getElementById("guardBehaviorList");
+const cameraListEl = document.getElementById("cameraList");
 
 let editorState = {
   currentTool: "wall",
@@ -74,7 +83,8 @@ function createEmptyLevel() {
     mechanisms: {
       pressurePlates: [],
       screens: [],
-      lights: []
+      lights: [],
+      cameras: []
     }
   };
 }
@@ -201,7 +211,7 @@ function renderEditorBoard() {
         label.textContent = `巡${guardInfo.guardIndex + 1}`;
       }
 
-      const mech = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+      const mech = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
       const plate = mech.pressurePlates.find(p => samePoint(p, point));
       if (plate) {
         tile.classList.add("pressure-plate");
@@ -216,6 +226,13 @@ function renderEditorBoard() {
       if (light) {
         tile.classList.add("light-switch");
         label.textContent = "熄灯";
+      }
+      const cam = (mech.cameras || []).find(c => samePoint(c, point));
+      if (cam) {
+        tile.classList.add("camera");
+        tile.classList.add(`camera-${cam.direction}`);
+        const dirLabels = { up: "↑", down: "↓", left: "←", right: "→" };
+        label.textContent = `摄像${dirLabels[cam.direction] || ""}`;
       }
 
       if (editorState.currentGuardPath) {
@@ -247,6 +264,8 @@ function handleTileClick(x, y) {
     handleGuardPathClick(point);
   } else if (tool === "pressurePlate") {
     handlePressurePlateClick(point);
+  } else if (tool === "camera") {
+    handleCameraClick(point);
   } else {
     placeOrRemove(tool, point);
   }
@@ -357,7 +376,7 @@ function handleGuardPathClick(point) {
 
 function handlePressurePlateClick(point) {
   const level = editorState.level;
-  const mech = level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const mech = level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   const existing = mech.pressurePlates.find(p => samePoint(p, point));
   if (existing) {
     mech.pressurePlates = mech.pressurePlates.filter(p => !samePoint(p, point));
@@ -368,6 +387,20 @@ function handlePressurePlateClick(point) {
     if (level.doors.length === 0) {
       showWarning("当前没有门，压力板将不会有效果");
     }
+  }
+}
+
+function handleCameraClick(point) {
+  const level = editorState.level;
+  const mech = level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
+  mech.cameras = mech.cameras || [];
+  const existing = mech.cameras.find(c => samePoint(c, point));
+  if (existing) {
+    mech.cameras = mech.cameras.filter(c => !samePoint(c, point));
+  } else {
+    eraseAt(point);
+    mech.cameras.push({ x: point.x, y: point.y, direction: "right", disabled: false });
+    renderCameraList();
   }
 }
 
@@ -396,6 +429,13 @@ function eraseAt(point) {
     mech.pressurePlates = mech.pressurePlates.filter((p) => !samePoint(p, point));
     mech.screens = mech.screens.filter((s) => !samePoint(s, point));
     mech.lights = mech.lights.filter((l) => !samePoint(l, point));
+    if (mech.cameras) {
+      const before = mech.cameras.length;
+      mech.cameras = mech.cameras.filter((c) => !samePoint(c, point));
+      if (mech.cameras.length !== before) {
+        renderCameraList();
+      }
+    }
   }
 }
 
@@ -436,7 +476,7 @@ function pointKey(point) {
 
 function updateEditorStats() {
   const level = editorState.level;
-  const mech = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
+  const mech = level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
   editorWallCountEl.textContent = level.walls.length;
   editorDoorCountEl.textContent = level.doors.length;
   editorKeyCountEl.textContent = level.keys.length;
@@ -447,7 +487,9 @@ function updateEditorStats() {
   editorPlateCountEl.textContent = mech.pressurePlates.length;
   editorScreenCountEl.textContent = mech.screens.length;
   editorLightCountEl.textContent = mech.lights.length;
+  editorCameraCountEl.textContent = (mech.cameras || []).length;
   renderGuardBehaviorConfig();
+  renderCameraList();
 }
 
 function validateLevel() {
@@ -582,6 +624,66 @@ function renderGuardBehaviorConfig() {
   });
 }
 
+function renderCameraList() {
+  if (!cameraListEl) return;
+
+  const mech = editorState.level.mechanisms || { pressurePlates: [], screens: [], lights: [], cameras: [] };
+  const cameras = mech.cameras || [];
+
+  if (cameras.length === 0) {
+    cameraListEl.innerHTML = '<p class="no-cameras-hint">先放置安保摄像头后可配置方向</p>';
+    return;
+  }
+
+  cameraListEl.innerHTML = "";
+  cameras.forEach((cam, index) => {
+    const card = document.createElement("div");
+    card.className = "camera-config-card";
+    const currentDir = cam.direction || "right";
+
+    card.innerHTML = `
+      <div class="camera-config-header">
+        <span class="camera-config-title">摄像头 ${index + 1} <small>(${cam.x}, ${cam.y})</small></span>
+        <select class="camera-direction-select" data-camera-index="${index}">
+          ${CAMERA_DIRECTION_OPTIONS.map(opt => 
+            `<option value="${opt.value}" ${opt.value === currentDir ? 'selected' : ''}>${opt.label}</option>`
+          ).join('')}
+        </select>
+      </div>
+      <div class="camera-config-actions">
+        <button type="button" class="camera-delete-btn" data-camera-index="${index}">删除</button>
+      </div>
+    `;
+    cameraListEl.appendChild(card);
+  });
+
+  cameraListEl.querySelectorAll(".camera-direction-select").forEach(select => {
+    select.addEventListener("change", (e) => {
+      const index = parseInt(e.target.dataset.cameraIndex, 10);
+      const cameras = editorState.level.mechanisms?.cameras || [];
+      if (cameras[index]) {
+        cameras[index].direction = e.target.value;
+        renderEditorBoard();
+        scheduleDiagnosis();
+      }
+    });
+  });
+
+  cameraListEl.querySelectorAll(".camera-delete-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      const index = parseInt(e.target.dataset.cameraIndex, 10);
+      if (confirm(`确定要删除摄像头 ${index + 1} 吗？`)) {
+        if (editorState.level.mechanisms?.cameras) {
+          editorState.level.mechanisms.cameras.splice(index, 1);
+        }
+        renderEditorBoard();
+        updateEditorStats();
+        scheduleDiagnosis();
+      }
+    });
+  });
+}
+
 function playEditorLevel() {
   finishGuardPath();
 
@@ -592,7 +694,9 @@ function playEditorLevel() {
 
   const levelData = JSON.parse(JSON.stringify(editorState.level));
   if (!levelData.mechanisms) {
-    levelData.mechanisms = { pressurePlates: [], screens: [], lights: [] };
+    levelData.mechanisms = { pressurePlates: [], screens: [], lights: [], cameras: [] };
+  } else if (!levelData.mechanisms.cameras) {
+    levelData.mechanisms.cameras = [];
   }
 
   if (typeof diagnoseLevel === "function") {
