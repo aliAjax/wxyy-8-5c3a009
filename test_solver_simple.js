@@ -465,9 +465,12 @@ function unifiedSolveLevel(level, options = {}) {
     }
   }
 
-  function emitSoundUnified(guardsList, soundLoudness, position, source) {
-    if (soundLoudness <= 0) return;
-    guardsList.forEach((guard) => {
+  function emitSoundUnified(s, soundLoudness, position, source) {
+    if (soundLoudness <= 0) {
+      updateGlobalAlertLevelUnified(s);
+      return;
+    }
+    s.guards.forEach((guard) => {
       if (guard.state === "investigate" || guard.state === "trace") return;
       const distance = Math.abs(guard.pos.x - position.x) + Math.abs(guard.pos.y - position.y);
       if (distance <= guard.hearingRange + soundLoudness) {
@@ -480,14 +483,16 @@ function unifiedSolveLevel(level, options = {}) {
         }
       }
     });
+    updateGlobalAlertLevelUnified(s);
   }
 
-  function decayAlertLevelsUnified(guardsList) {
-    guardsList.forEach((guard) => {
+  function decayAlertLevelsUnified(s) {
+    s.guards.forEach((guard) => {
       if (guard.alertLevel > 0 && guard.state === "patrol") {
         guard.alertLevel = Math.max(0, guard.alertLevel - 1);
       }
     });
+    updateGlobalAlertLevelUnified(s);
   }
 
   function advanceLightAndCameraEffectsUnified(s) {
@@ -655,12 +660,13 @@ function unifiedSolveLevel(level, options = {}) {
         }
       }
 
-      emitSoundUnified(ns.guards, soundLoudness, ns.pos, dirName);
+      emitSoundUnified(ns, soundLoudness, ns.pos, dirName);
 
       const camVision = getCameraVisionUnified(ns.screens, cur.visionReduced, cur.camerasDisabled, ns.lightsActive);
       if (camVision.has(pk)) {
         ns.alertLevel = Math.min(3, ns.alertLevel + 1);
         if (ns.alertLevel >= 3) continue;
+        updateGlobalAlertLevelUnified(ns);
       }
 
       ns.path.push({ ...ns.pos });
@@ -671,14 +677,9 @@ function unifiedSolveLevel(level, options = {}) {
 
       if (ns.ap <= 0) {
         const nextState = cloneSolverStateUnified(ns);
-        emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+        emitSoundUnified(nextState, 0, nextState.pos, "等待");
         advanceLightAndCameraEffectsUnified(nextState);
-        decayAlertLevelsUnified(nextState.guards);
-        
-        let maxGuardAlert = 0;
-        nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
-        nextState.alertLevel = maxGuardAlert;
-        
+        decayAlertLevelsUnified(nextState);
         nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
 
         const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
@@ -688,10 +689,7 @@ function unifiedSolveLevel(level, options = {}) {
           if (nextCamVision.has(curPk)) {
             nextState.alertLevel = Math.min(3, nextState.alertLevel + 1);
             if (nextState.alertLevel >= 3) continue;
-            
-            let maxGuardAlert2 = 0;
-            nextState.guards.forEach(g => { maxGuardAlert2 = Math.max(maxGuardAlert2, g.alertLevel); });
-            nextState.alertLevel = maxGuardAlert2;
+            updateGlobalAlertLevelUnified(nextState);
           }
 
           nextState.step = (cur.step + 1) % (cur.guards.length > 0 ? Math.max(...cur.guards.map(g => g.path.length)) : 1);
@@ -711,9 +709,6 @@ function unifiedSolveLevel(level, options = {}) {
           }
         }
       } else {
-        let maxGuardAlert = 0;
-        ns.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
-        ns.alertLevel = maxGuardAlert;
         const found = checkAndEnqueue(ns);
         if (found) {
           return {
@@ -735,45 +730,45 @@ function unifiedSolveLevel(level, options = {}) {
         ns.fixed[i] = true;
         ns.ap -= 1;
 
-        emitSoundUnified(ns.guards, 2, ns.pos, "修复");
+        emitSoundUnified(ns, 2, ns.pos, "修复");
+
+        const allFixedNow = ns.fixed.every(f => f);
+        const atExitNow = samePoint(ns.pos, exit);
+        if (allFixedNow && atExitNow) {
+          ns.path.push({ ...ns.pos });
+          ns.actionLabels = ns.actionLabels || [...ns.actions];
+          ns.actionLabels.push("修复展柜");
+          ns.actions = ns.actionLabels;
+          return {
+            solvable: true,
+            path: ns.path,
+            actions: ns.actions,
+            steps: ns.path.length,
+            totalActions: iterations,
+            finalAlertLevel: ns.alertLevel
+          };
+        }
 
         ns.path.push({ ...ns.pos });
         ns.actionLabels = ns.actionLabels || [...ns.actions];
         ns.actionLabels.push("修复展柜");
         ns.actions = ns.actionLabels;
 
-        const vision = getFullVisionUnified(cur.guards, ns.screens, cur.visionReduced, cur.camerasDisabled, cur.lightsActive);
-        const curPk = pointKey(ns.pos);
-        if (vision.has(curPk)) continue;
-
-        const camVision = getCameraVisionUnified(ns.screens, cur.visionReduced, cur.camerasDisabled, ns.lightsActive);
-        if (camVision.has(curPk)) {
-          ns.alertLevel = Math.min(3, ns.alertLevel + 1);
-          if (ns.alertLevel >= 3) continue;
-        }
-
         if (ns.ap <= 0) {
           const nextState = cloneSolverStateUnified(ns);
-          emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+          emitSoundUnified(nextState, 0, nextState.pos, "等待");
           advanceLightAndCameraEffectsUnified(nextState);
-          decayAlertLevelsUnified(nextState.guards);
-          
-          let maxGuardAlert = 0;
-          nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
-          nextState.alertLevel = maxGuardAlert;
-          
+          decayAlertLevelsUnified(nextState);
           nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
 
+          const curPk = pointKey(ns.pos);
           const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
           if (!nextVision.has(curPk)) {
             const nextCamVision = getCameraVisionUnified(nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
             if (nextCamVision.has(curPk)) {
               nextState.alertLevel = Math.min(3, nextState.alertLevel + 1);
               if (nextState.alertLevel >= 3) continue;
-              
-              let maxGuardAlert2 = 0;
-              nextState.guards.forEach(g => { maxGuardAlert2 = Math.max(maxGuardAlert2, g.alertLevel); });
-              nextState.alertLevel = maxGuardAlert2;
+              updateGlobalAlertLevelUnified(nextState);
             }
 
             nextState.step = (cur.step + 1) % (cur.guards.length > 0 ? Math.max(...cur.guards.map(g => g.path.length)) : 1);
@@ -793,9 +788,6 @@ function unifiedSolveLevel(level, options = {}) {
             }
           }
         } else {
-          let maxGuardAlert = 0;
-          ns.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
-          ns.alertLevel = maxGuardAlert;
           const found = checkAndEnqueue(ns);
           if (found) {
             return {
@@ -813,14 +805,9 @@ function unifiedSolveLevel(level, options = {}) {
 
     {
       const nextState = cloneSolverStateUnified(cur);
-      emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+      emitSoundUnified(nextState, 0, nextState.pos, "等待");
       advanceLightAndCameraEffectsUnified(nextState);
-      decayAlertLevelsUnified(nextState.guards);
-      
-      let maxGuardAlert = 0;
-      nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
-      nextState.alertLevel = maxGuardAlert;
-      
+      decayAlertLevelsUnified(nextState);
       nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
 
       const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
@@ -830,10 +817,7 @@ function unifiedSolveLevel(level, options = {}) {
         if (nextCamVision.has(curPk)) {
           nextState.alertLevel = Math.min(3, nextState.alertLevel + 1);
           if (nextState.alertLevel >= 3) continue;
-          
-          let maxGuardAlert2 = 0;
-          nextState.guards.forEach(g => { maxGuardAlert2 = Math.max(maxGuardAlert2, g.alertLevel); });
-          nextState.alertLevel = maxGuardAlert2;
+          updateGlobalAlertLevelUnified(nextState);
         }
 
         nextState.step = (cur.step + 1) % (cur.guards.length > 0 ? Math.max(...cur.guards.map(g => g.path.length)) : 1);

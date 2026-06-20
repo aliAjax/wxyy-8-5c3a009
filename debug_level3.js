@@ -432,9 +432,12 @@ function unifiedSolveLevel(level, options = {}) {
     }
   }
 
-  function emitSoundUnified(guardsList, soundLoudness, position, source) {
-    if (soundLoudness <= 0) return;
-    guardsList.forEach((guard) => {
+  function emitSoundUnified(s, soundLoudness, position, source) {
+    if (soundLoudness <= 0) {
+      updateGlobalAlertLevelUnified(s);
+      return;
+    }
+    s.guards.forEach((guard) => {
       if (guard.state === "investigate" || guard.state === "trace") return;
       const distance = Math.abs(guard.pos.x - position.x) + Math.abs(guard.pos.y - position.y);
       if (distance <= guard.hearingRange + soundLoudness) {
@@ -447,14 +450,16 @@ function unifiedSolveLevel(level, options = {}) {
         }
       }
     });
+    updateGlobalAlertLevelUnified(s);
   }
 
-  function decayAlertLevelsUnified(guardsList) {
-    guardsList.forEach((guard) => {
+  function decayAlertLevelsUnified(s) {
+    s.guards.forEach((guard) => {
       if (guard.alertLevel > 0 && guard.state === "patrol") {
         guard.alertLevel = Math.max(0, guard.alertLevel - 1);
       }
     });
+    updateGlobalAlertLevelUnified(s);
   }
 
   function advanceLightAndCameraEffectsUnified(s) {
