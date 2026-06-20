@@ -663,6 +663,18 @@ function recordHistory(action) {
   state.history.push(snapshotState(action));
 }
 
+function syncCurrentHistorySnapshot() {
+  if (!state || !state.history || state.history.length === 0) return;
+  const snapshot = state.history[state.history.length - 1];
+  snapshot.log = [...state.log];
+  snapshot.hintState = {
+    active: hintState.active,
+    path: hintState.path.map(p => ({ ...p })),
+    actionLabels: [...hintState.actionLabels]
+  };
+  snapshot.gameplayMetrics = { ...gameplayMetrics };
+}
+
 function canUndo() {
   if (!state || !state.history || state.history.length <= 1) return false;
   if (state.done) return false;
@@ -736,21 +748,16 @@ function restoreStateFromSnapshot(snapshot) {
 function undo() {
   if (!canUndo()) return;
 
-  state.history.pop();
+  const undoneSnapshot = state.history.pop();
 
   const snapshot = state.history[state.history.length - 1];
-  const undoAction = snapshot.action;
+  const undoAction = undoneSnapshot.action;
   restoreStateFromSnapshot(snapshot);
 
   state.log.push(`↶ 撤销了"${undoAction}"操作`);
   state.log = state.log.slice(-28);
 
-  snapshot.log = [...state.log];
-  snapshot.hintState = {
-    active: hintState.active,
-    path: hintState.path.map(p => ({ ...p })),
-    actionLabels: [...hintState.actionLabels]
-  };
+  syncCurrentHistorySnapshot();
 
   render();
 }
@@ -3627,6 +3634,7 @@ function requestHint() {
       clearHint();
       addLog("😰 暂时找不到安全路线，建议先等待或调整位置。");
     }
+    syncCurrentHistorySnapshot();
     render();
   }, 50);
 }
