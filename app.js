@@ -434,6 +434,59 @@ function recordHistory(action) {
   state.history.push(snapshotState(action));
 }
 
+function undoAction() {
+  if (state.history.length <= 1) return;
+  if (state.done) return;
+  if (tutorialState.active) return;
+
+  state.history.pop();
+  const snapshot = state.history[state.history.length - 1];
+
+  state.player = { ...snapshot.player };
+  state.ap = snapshot.ap;
+  state.keys = snapshot.keys;
+  state.done = snapshot.done;
+  state.visionReduced = snapshot.visionReduced;
+  state.pendingVisionReduction = snapshot.pendingVisionReduction;
+  state.alertLevel = snapshot.alertLevel;
+  state.soundSources = snapshot.soundSources.map(s => ({ ...s, position: { ...s.position } }));
+  state.log = [...snapshot.log];
+
+  state.level.walls = [...snapshot.level.walls];
+  state.level.doors = snapshot.level.doors.map(d => ({ ...d }));
+  state.level.keys = snapshot.level.keys.map(k => ({ ...k }));
+  state.level.exhibits = snapshot.level.exhibits.map(e => ({ ...e }));
+  state.level.guards = snapshot.level.guards.map(g => ({
+    path: g.path.map(p => ({ ...p })),
+    step: g.step,
+    pos: { ...g.pos },
+    behavior: g.behavior,
+    direction: g.direction,
+    originalPath: g.originalPath.map(p => ({ ...p })),
+    originalStep: g.originalStep,
+    state: g.state,
+    investigateTarget: g.investigateTarget ? { ...g.investigateTarget } : null,
+    investigateTimer: g.investigateTimer,
+    traceTarget: g.traceTarget ? { ...g.traceTarget } : null,
+    tracePath: g.tracePath.map(p => ({ ...p })),
+    alertLevel: g.alertLevel,
+    hearingRange: g.hearingRange,
+    id: g.id
+  }));
+  state.level.openedDoors = snapshot.level.openedDoors ? snapshot.level.openedDoors.map(d => ({ ...d })) : [];
+
+  const sm = snapshot.level.mechanisms;
+  if (state.level.mechanisms) {
+    state.level.mechanisms.pressurePlates = sm.pressurePlates.map(p => ({ ...p, targetDoors: p.targetDoors.map(td => ({ ...td })) }));
+    state.level.mechanisms.screens = sm.screens.map(s => ({ ...s }));
+    state.level.mechanisms.lights = sm.lights.map(l => ({ ...l }));
+  }
+
+  addLog(`↶ 撤销了「${snapshot.action}」`);
+  clearHint();
+  render();
+}
+
 function freshState(index) {
   const level = cloneLevel(index);
   level.mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
@@ -1098,6 +1151,14 @@ function bindControls() {
   repairBtn.addEventListener("click", repair);
   hintBtn.addEventListener("click", requestHint);
   restartBtn.addEventListener("click", restartLevel);
+  const undoBtn = document.getElementById("undoBtn");
+  if (undoBtn) {
+    undoBtn.addEventListener("click", undoAction);
+  }
+  const undoBtnTouch = document.getElementById("undoBtnTouch");
+  if (undoBtnTouch) {
+    undoBtnTouch.addEventListener("click", undoAction);
+  }
   window.addEventListener("keydown", (event) => {
     const keys = {
       ArrowUp: [0, -1],
@@ -1112,6 +1173,11 @@ function bindControls() {
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
       repair();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === "z") {
+      event.preventDefault();
+      undoAction();
       return;
     }
     const dir = keys[event.key];
@@ -1758,6 +1824,14 @@ function render() {
   repairBtn.disabled = state.done;
   hintBtn.disabled = state.done;
   hintBtn.classList.toggle("hint-btn", !state.done);
+  const undoBtn = document.getElementById("undoBtn");
+  if (undoBtn) {
+    undoBtn.disabled = state.done || state.history.length <= 1 || tutorialState.active;
+  }
+  const undoBtnTouch = document.getElementById("undoBtnTouch");
+  if (undoBtnTouch) {
+    undoBtnTouch.disabled = state.done || state.history.length <= 1 || tutorialState.active;
+  }
   renderBoard();
   renderLog();
 }
@@ -3487,27 +3561,55 @@ function diagnoseLevel(level) {
     checks: [],
     issues: [],
     warnings: [],
-    solution: null
+    solution: null,
+    debug: {
+      unreachableCells: [],
+      permanentlyBlockedCells: [],
+      keyDependencies: [],
+      problemDoors: [],
+      solutionPreview: []
+    }
   };
 
   const { walls, doors, keys: keyItems, exhibits, guards, player, exit } = level;
   const mechanisms = level.mechanisms || { pressurePlates: [], screens: [], lights: [] };
   const screens = mechanisms.screens || [];
 
+  let issueCounter = 0;
+  let warningCounter = 0;
+
+  function makeIssue(type, message, cells) {
+    return {
+      id: `issue_${issueCounter++}`,
+      type: type,
+      message: message,
+      cells: cells || []
+    };
+  }
+
+  function makeWarning(type, message, cells) {
+    return {
+      id: `warn_${warningCounter++}`,
+      type: type,
+      message: message,
+      cells: cells || []
+    };
+  }
+
   result.checks.push({ name: "基础要素", passed: true });
 
   if (!player) {
-    result.issues.push("缺少玩家起点");
+    result.issues.push(makeIssue("missing_player", "缺少玩家起点"));
     result.checks[result.checks.length - 1].passed = false;
     return result;
   }
   if (!exit) {
-    result.issues.push("缺少出口");
+    result.issues.push(makeIssue("missing_exit", "缺少出口"));
     result.checks[result.checks.length - 1].passed = false;
     return result;
   }
   if (exhibits.length === 0) {
-    result.issues.push("至少需要一个展柜");
+    result.issues.push(makeIssue("missing_exhibit", "至少需要一个展柜"));
     result.checks[result.checks.length - 1].passed = false;
     return result;
   }
@@ -3517,23 +3619,79 @@ function diagnoseLevel(level) {
   const exitKey = pointKey(exit);
 
   if (wallSet.has(playerKey)) {
-    result.issues.push("玩家起点在墙上");
+    result.issues.push(makeIssue("player_on_wall", "玩家起点在墙上", [{ x: player.x, y: player.y }]));
     result.checks[result.checks.length - 1].passed = false;
   }
   if (wallSet.has(exitKey)) {
-    result.issues.push("出口在墙上");
+    result.issues.push(makeIssue("exit_on_wall", "出口在墙上", [{ x: exit.x, y: exit.y }]));
     result.checks[result.checks.length - 1].passed = false;
   }
 
   result.checks.push({ name: "出口可达性", passed: true });
   const reachAllDoorsOpen = bfsReachableWithScreens(walls, doors, player, false, screens);
+
+  const unreachableSet = new Set();
+  const allBoardCells = [];
+  for (let y = 0; y < BOARD_H; y++) {
+    for (let x = 0; x < BOARD_W; x++) {
+      const ck = `${x},${y}`;
+      if (!wallSet.has(ck) && !reachAllDoorsOpen.has(ck)) {
+        const isScreen = (screens || []).some(s => s.x === x && s.y === y);
+        const isDoor = doors.some(d => d.x === x && d.y === y);
+        if (!isScreen && !isDoor && !unreachableSet.has(ck)) {
+          unreachableSet.add(ck);
+          result.debug.unreachableCells.push({ x, y });
+        }
+      }
+      allBoardCells.push({ x, y });
+    }
+  }
+
   if (!reachAllDoorsOpen.has(exitKey)) {
-    result.issues.push("出口不可达：即使所有门都打开，从玩家起点也无法到达出口");
+    const cellSet = new Set();
+    const unreachableExitCells = [];
+    function addCell(c) {
+      const k = `${c.x},${c.y}`;
+      if (!cellSet.has(k)) {
+        cellSet.add(k);
+        unreachableExitCells.push(c);
+      }
+    }
+    addCell({ x: exit.x, y: exit.y });
+    const bfsFromExit = bfsReachableWithScreensReverse(walls, doors, exit, false, screens);
+    bfsFromExit.forEach(k => {
+      const [ex, ey] = k.split(",").map(Number);
+      if (!wallSet.has(k) && !reachAllDoorsOpen.has(k)) {
+        const isScreen = (screens || []).some(s => s.x === ex && s.y === ey);
+        const isDoor = doors.some(d => d.x === ex && d.y === ey);
+        if (!isScreen && !isDoor) {
+          addCell({ x: ex, y: ey });
+        }
+      }
+    });
+    result.issues.push(makeIssue(
+      "exit_unreachable",
+      "出口不可达：即使所有门都打开，从玩家起点也无法到达出口",
+      unreachableExitCells
+    ));
     result.checks[result.checks.length - 1].passed = false;
   } else {
     const reachDoorsClosed = bfsReachableWithScreens(walls, doors, player, true, screens);
     if (!reachDoorsClosed.has(exitKey) && keyItems.length === 0 && doors.length > 0) {
-      result.warnings.push("出口被门封锁，但没有钥匙");
+      const problemDoorCells = doors.map(d => ({ x: d.x, y: d.y }));
+      result.warnings.push(makeWarning(
+        "exit_locked_no_keys",
+        "出口被门封锁，但没有钥匙",
+        problemDoorCells
+      ));
+      doors.forEach((d, i) => {
+        result.debug.problemDoors.push({
+          doorIndex: i,
+          doorPos: { x: d.x, y: d.y },
+          reason: "no_key",
+          cells: [{ x: d.x, y: d.y }]
+        });
+      });
     }
   }
 
@@ -3542,7 +3700,11 @@ function diagnoseLevel(level) {
     const ex = exhibits[i];
     const exKey = pointKey(ex);
     if (wallSet.has(exKey)) {
-      result.issues.push(`展柜${i + 1}在墙上，无法修复`);
+      result.issues.push(makeIssue(
+        `exhibit_on_wall_${i}`,
+        `展柜${i + 1}在墙上，无法修复`,
+        [{ x: ex.x, y: ex.y }]
+      ));
       result.checks[result.checks.length - 1].passed = false;
       continue;
     }
@@ -3555,21 +3717,35 @@ function diagnoseLevel(level) {
     });
 
     if (reachableAdjacent.length === 0) {
-      result.issues.push(`展柜${i + 1}无法邻接修复：周围没有可到达的相邻格子`);
+      const exhibitCells = [{ x: ex.x, y: ex.y }, ...adjacentCells];
+      result.issues.push(makeIssue(
+        `exhibit_unreachable_${i}`,
+        `展柜${i + 1}无法邻接修复：周围没有可到达的相邻格子`,
+        exhibitCells
+      ));
       result.checks[result.checks.length - 1].passed = false;
     }
   }
 
   result.checks.push({ name: "钥匙可达性", passed: true });
   if (doors.length > 0 && keyItems.length === 0) {
-    result.warnings.push("有门但没有钥匙，门可能无法打开");
+    const doorCells = doors.map(d => ({ x: d.x, y: d.y }));
+    result.warnings.push(makeWarning(
+      "doors_no_keys",
+      "有门但没有钥匙，门可能无法打开",
+      doorCells
+    ));
   }
 
   for (let i = 0; i < keyItems.length; i++) {
     const key = keyItems[i];
     const keyK = pointKey(key);
     if (wallSet.has(keyK)) {
-      result.issues.push(`钥匙${i + 1}在墙上`);
+      result.issues.push(makeIssue(
+        `key_on_wall_${i}`,
+        `钥匙${i + 1}在墙上`,
+        [{ x: key.x, y: key.y }]
+      ));
       result.checks[result.checks.length - 1].passed = false;
       continue;
     }
@@ -3578,10 +3754,36 @@ function diagnoseLevel(level) {
     if (!reachNoKeys.has(keyK)) {
       const reachWithKeys = bfsReachableWithScreens(walls, doors, player, false, screens);
       if (!reachWithKeys.has(keyK)) {
-        result.issues.push(`钥匙${i + 1}被封死：无法到达该钥匙位置`);
+        result.issues.push(makeIssue(
+          `key_locked_${i}`,
+          `钥匙${i + 1}被封死：无法到达该钥匙位置`,
+          [{ x: key.x, y: key.y }]
+        ));
         result.checks[result.checks.length - 1].passed = false;
       } else {
-        result.warnings.push(`钥匙${i + 1}需要先打开其他门才能拿到，注意钥匙顺序`);
+        const requiredDoors = [];
+        const doorCells = [];
+        for (let j = 0; j < doors.length; j++) {
+          const d = doors[j];
+          const otherDoors = doors.filter((_, idx) => idx !== j);
+          const reachWithThisDoorOpen = bfsReachableWithScreensDoorsOpen(walls, otherDoors, [d], player, screens);
+          if (reachWithThisDoorOpen.has(keyK)) {
+            requiredDoors.push(j);
+            doorCells.push({ x: d.x, y: d.y });
+          }
+        }
+        const keyDepCells = [{ x: key.x, y: key.y }, ...doorCells];
+        result.warnings.push(makeWarning(
+          `key_order_${i}`,
+          `钥匙${i + 1}需要先打开其他门才能拿到，注意钥匙顺序`,
+          keyDepCells
+        ));
+        result.debug.keyDependencies.push({
+          keyIndex: i,
+          keyPos: { x: key.x, y: key.y },
+          requiredDoorIndices: requiredDoors,
+          cells: keyDepCells
+        });
       }
     }
   }
@@ -3590,14 +3792,8 @@ function diagnoseLevel(level) {
   if (guards.length > 0) {
     const cycleLen = getGuardCycleLength(guards);
     const alwaysBlocked = new Set();
-    const allCells = [];
-    for (let y = 0; y < BOARD_H; y++) {
-      for (let x = 0; x < BOARD_W; x++) {
-        allCells.push({ x, y });
-      }
-    }
 
-    allCells.forEach(cell => {
+    allBoardCells.forEach(cell => {
       const ck = pointKey(cell);
       if (wallSet.has(ck)) return;
       let alwaysInVision = true;
@@ -3610,39 +3806,56 @@ function diagnoseLevel(level) {
       }
       if (alwaysInVision) {
         alwaysBlocked.add(ck);
+        result.debug.permanentlyBlockedCells.push({ x: cell.x, y: cell.y });
       }
     });
 
     const playerOnPath = bfsReachableWithScreens(walls, doors, player, false, screens);
-    const criticalPathCells = new Set();
+    const criticalPathCells = [];
     playerOnPath.forEach(ck => {
       if (alwaysBlocked.has(ck)) {
-        criticalPathCells.add(ck);
+        const [cx, cy] = ck.split(",").map(Number);
+        criticalPathCells.push({ x: cx, y: cy });
       }
     });
 
-    if (criticalPathCells.size > 0) {
+    if (criticalPathCells.length > 0) {
       const exitBlocked = alwaysBlocked.has(exitKey);
       if (exitBlocked) {
-        result.issues.push("巡逻视线永久封锁出口：出口位置始终在巡逻员视野内");
+        result.issues.push(makeIssue(
+          "exit_vision_blocked",
+          "巡逻视线永久封锁出口：出口位置始终在巡逻员视野内",
+          [{ x: exit.x, y: exit.y }]
+        ));
         result.checks[result.checks.length - 1].passed = false;
       }
 
       let allExhibitsBlocked = true;
+      const blockedExhibitCells = [];
       for (const ex of exhibits) {
         const exAdj = getAdjacentCells(ex).some(c => !alwaysBlocked.has(pointKey(c)) && reachAllDoorsOpen.has(pointKey(c)));
         if (exAdj) {
           allExhibitsBlocked = false;
-          break;
+        } else {
+          blockedExhibitCells.push({ x: ex.x, y: ex.y });
+          blockedExhibitCells.push(...getAdjacentCells(ex));
         }
       }
       if (allExhibitsBlocked && exhibits.length > 0) {
-        result.issues.push("巡逻视线永久封锁所有展柜的修复位置");
+        result.issues.push(makeIssue(
+          "exhibits_vision_blocked",
+          "巡逻视线永久封锁所有展柜的修复位置",
+          blockedExhibitCells
+        ));
         result.checks[result.checks.length - 1].passed = false;
       }
 
-      if (!exitBlocked && !allExhibitsBlocked && criticalPathCells.size > 0) {
-        result.warnings.push(`有 ${criticalPathCells.size} 个格子始终在巡逻视野内，可能影响通行`);
+      if (!exitBlocked && !allExhibitsBlocked && criticalPathCells.length > 0) {
+        result.warnings.push(makeWarning(
+          "vision_path_cells",
+          `有 ${criticalPathCells.length} 个格子始终在巡逻视野内，可能影响通行`,
+          criticalPathCells
+        ));
       }
     }
   }
@@ -3653,12 +3866,33 @@ function diagnoseLevel(level) {
     result.solvable = true;
     result.solution = solution;
     result.checks[result.checks.length - 1].passed = true;
+
+    const previewCount = Math.min(6, solution.path.length);
+    for (let i = 0; i < previewCount; i++) {
+      result.debug.solutionPreview.push({
+        step: i,
+        action: solution.actions[i] || "",
+        pos: { x: solution.path[i].x, y: solution.path[i].y }
+      });
+    }
   } else {
-    result.issues.push("关卡无解：找不到合法的通关路线");
+    result.issues.push(makeIssue(
+      "no_solution",
+      "关卡无解：找不到合法的通关路线",
+      result.debug.unreachableCells.length > 0
+        ? result.debug.unreachableCells.slice(0, 20)
+        : (result.debug.permanentlyBlockedCells.length > 0
+           ? result.debug.permanentlyBlockedCells.slice(0, 20)
+           : [])
+    ));
     result.checks[result.checks.length - 1].passed = false;
 
     if (guards.length > 0 && result.checks.filter(c => c.name !== "完整求解验证").every(c => c.passed)) {
-      result.warnings.push("静态检查通过但动态无解，可能是巡逻时机问题导致无法通过");
+      result.warnings.push(makeWarning(
+        "timing_issue",
+        "静态检查通过但动态无解，可能是巡逻时机问题导致无法通过",
+        result.debug.permanentlyBlockedCells.slice(0, 10)
+      ));
     }
   }
 
@@ -3703,6 +3937,70 @@ function bfsReachableWithScreens(walls, doors, start, considerDoorsClosed, scree
       if (wallSet.has(nkey)) continue;
       if (screenSet.has(nkey)) continue;
       if (considerDoorsClosed && doorSet.has(nkey)) continue;
+      reachable.add(nkey);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return reachable;
+}
+
+function bfsReachableWithScreensReverse(walls, doors, start, considerDoorsClosed, screens) {
+  const reachable = new Set();
+  const queue = [{ x: start.x, y: start.y }];
+  reachable.add(pointKey(start));
+  const wallSet = new Set(walls);
+  const doorSet = new Set(doors.map((d) => pointKey(d)));
+  const screenSet = new Set((screens || []).map(s => pointKey(s)));
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      const nkey = `${nx},${ny}`;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      if (reachable.has(nkey)) continue;
+      if (wallSet.has(nkey)) continue;
+      if (screenSet.has(nkey)) continue;
+      if (considerDoorsClosed && doorSet.has(nkey)) continue;
+      reachable.add(nkey);
+      queue.push({ x: nx, y: ny });
+    }
+  }
+  return reachable;
+}
+
+function bfsReachableWithScreensDoorsOpen(walls, closedDoors, openDoors, start, screens) {
+  const reachable = new Set();
+  const queue = [{ x: start.x, y: start.y }];
+  reachable.add(pointKey(start));
+  const wallSet = new Set(walls);
+  const closedDoorSet = new Set(closedDoors.map((d) => pointKey(d)));
+  const screenSet = new Set((screens || []).map(s => pointKey(s)));
+
+  while (queue.length > 0) {
+    const cur = queue.shift();
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1]
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = cur.x + dx;
+      const ny = cur.y + dy;
+      const nkey = `${nx},${ny}`;
+      if (nx < 0 || nx >= BOARD_W || ny < 0 || ny >= BOARD_H) continue;
+      if (reachable.has(nkey)) continue;
+      if (wallSet.has(nkey)) continue;
+      if (screenSet.has(nkey)) continue;
+      if (closedDoorSet.has(nkey)) continue;
       reachable.add(nkey);
       queue.push({ x: nx, y: ny });
     }
