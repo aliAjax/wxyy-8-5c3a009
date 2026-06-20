@@ -2983,3 +2983,643 @@ h2 {
     width: 100%;
   }
 }
+
+/* ============ 创作挑战包样式 ============ */
+
+.challenge-pack-toggle {
+  background: #e67e22;
+  color: #201b20;
+}
+
+.challenge-pack-toggle.active {
+  background: #d35400;
+  color: #fff;
+  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.35);
+}
+
+.challenge-pack-panel {
+  margin-top: 16px;
+  padding: 20px;
+  border: 1px solid #514956;
+  border-radius: 8px;
+  background: #2c2730;
+}
+
+.challenge-pack-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.challenge-pack-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #e67e22;
+}
+
+.challenge-pack-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.challenge-pack-content {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.cp-card {
+  border: 2px solid #514956;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #3c3642 0%, #2c2730 100%);
+  overflow: hidden;
+  transition: all 0.3s;
+  display: flex;
+  flex-direction: column;
+}
+
+.cp-card.unlocked {
+  border-color: #e67e22;
+}
+
+.cp-card.unlocked:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(230, 126, 34, 0.2);
+}
+
+.cp-card.locked {
+  opacity: 0.5;
+}
+
+.cp-card.completed {
+  border-color: #2ecc71;
+}
+
+.cp-card-header {
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.25);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.cp-card-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #e67e22;
+  margin: 0 0 4px;
+}
+
+.cp-card.completed .cp-card-title {
+  color: #2ecc71;
+}
+
+.cp-card-author {
+  font-size: 11px;
+  color: #9b9090;
+}
+
+.cp-card-stars {
+  font-size: 16px;
+  color: #d7bd77;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.cp-card-body {
+  padding: 14px 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cp-card-desc {
+  font-size: 13px;
+  color: #cec4ba;
+  line-height: 1.5;
+  margin: 0;
+  flex: 1;
+}
+
+.cp-card-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #9b9090;
+}
+
+.cp-card-progress {
+  width: 100%;
+  height: 6px;
+  background: #201b20;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cp-card-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e67e22, #f39c12);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+.cp-card.completed .cp-card-progress-fill {
+  background: linear-gradient(90deg, #2ecc71, #27ae60);
+}
+
+.cp-card-actions {
+  padding: 12px 16px;
+  border-top: 1px solid #3c3642;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cp-card-actions button {
+  flex: 1;
+  min-height: 34px;
+  font-size: 13px;
+  padding: 0 10px;
+}
+
+.cp-btn-play {
+  background: #e67e22;
+  color: #fff;
+}
+
+.cp-btn-play:hover {
+  background: #d35400;
+}
+
+.cp-btn-edit {
+  background: #5a5260;
+  color: #f4efe6;
+}
+
+.cp-btn-edit:hover {
+  background: #7a7280;
+}
+
+.cp-btn-delete {
+  background: #c0392b;
+  color: #fff;
+}
+
+.cp-btn-delete:hover {
+  background: #a93226;
+}
+
+.cp-empty {
+  grid-column: 1 / -1;
+  padding: 40px 20px;
+  text-align: center;
+  color: #7a7280;
+  border: 2px dashed #514956;
+  border-radius: 12px;
+}
+
+.cp-empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.cp-empty-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #cec4ba;
+  margin-bottom: 6px;
+}
+
+.cp-empty-desc {
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.cp-empty button {
+  background: #e67e22;
+  color: #fff;
+}
+
+/* ============ 挑战包编辑器样式 ============ */
+
+.challenge-pack-editor {
+  margin-top: 16px;
+  padding: 0;
+  border: 1px solid #514956;
+  border-radius: 8px;
+  background: #2c2730;
+  overflow: hidden;
+}
+
+.cpe-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  background: rgba(230, 126, 34, 0.15);
+  border-bottom: 1px solid #514956;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cpe-header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #e67e22;
+}
+
+.cpe-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cpe-header-actions button {
+  min-height: 34px;
+  font-size: 13px;
+}
+
+#cpeSaveBtn {
+  background: #2ecc71;
+  color: #201b20;
+}
+
+#cpeExportBtn {
+  background: #3498db;
+  color: #fff;
+}
+
+.cpe-body {
+  display: grid;
+  grid-template-columns: 260px 1fr 240px;
+  gap: 0;
+  min-height: 500px;
+}
+
+.cpe-info,
+.cpe-library {
+  padding: 16px;
+  border-right: 1px solid #3c3642;
+}
+
+.cpe-library {
+  border-right: none;
+  border-left: 1px solid #3c3642;
+}
+
+.cpe-info h3,
+.cpe-library h3 {
+  color: #e67e22;
+  margin-bottom: 14px;
+  font-size: 15px;
+}
+
+.cpe-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.cpe-form-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cpe-form-row label {
+  font-size: 12px;
+  color: #9b9090;
+  font-weight: bold;
+}
+
+.cpe-form-row input,
+.cpe-form-row textarea {
+  background: #201b20;
+  border: 1px solid #514956;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #f4efe6;
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.cpe-form-row input:focus,
+.cpe-form-row textarea:focus {
+  outline: none;
+  border-color: #e67e22;
+}
+
+.cpe-hint {
+  padding: 10px 12px;
+  background: rgba(230, 126, 34, 0.1);
+  border: 1px solid rgba(230, 126, 34, 0.3);
+  border-radius: 6px;
+  font-size: 12px;
+  color: #cec4ba;
+}
+
+.cpe-hint p {
+  margin: 0 0 6px;
+}
+
+.cpe-hint p:last-child {
+  margin-bottom: 0;
+}
+
+.cpe-levels-section {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cpe-levels-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cpe-levels-header h3 {
+  margin: 0;
+  font-size: 15px;
+  color: #e67e22;
+}
+
+.cpe-levels-hint {
+  font-size: 11px;
+  color: #7a7280;
+}
+
+.cpe-level-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cpe-level-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #201b20;
+  border: 1px solid #3c3642;
+  border-radius: 8px;
+  transition: all 0.2s;
+}
+
+.cpe-level-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+.cpe-level-item.drag-over {
+  border-color: #e67e22;
+  background: rgba(230, 126, 34, 0.1);
+}
+
+.cpe-level-drag-handle {
+  cursor: grab;
+  color: #7a7280;
+  font-size: 16px;
+  user-select: none;
+  padding: 4px;
+}
+
+.cpe-level-drag-handle:active {
+  cursor: grabbing;
+}
+
+.cpe-level-index {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e67e22;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.cpe-level-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cpe-level-name {
+  font-size: 14px;
+  font-weight: bold;
+  color: #f4efe6;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cpe-level-meta {
+  font-size: 11px;
+  color: #7a7280;
+  display: flex;
+  gap: 10px;
+}
+
+.cpe-level-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cpe-level-target label {
+  font-size: 11px;
+  color: #9b9090;
+  white-space: nowrap;
+}
+
+.cpe-level-target input {
+  width: 60px;
+  background: #2c2730;
+  border: 1px solid #514956;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: #f4efe6;
+  font: inherit;
+  font-size: 12px;
+  text-align: center;
+}
+
+.cpe-level-target input:focus {
+  outline: none;
+  border-color: #e67e22;
+}
+
+.cpe-level-remove {
+  background: #c0392b;
+  color: #fff;
+  min-height: 30px;
+  min-width: 30px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.cpe-level-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #7a7280;
+  border: 2px dashed #3c3642;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.cpe-library-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.cpe-library-item {
+  padding: 10px 12px;
+  background: #201b20;
+  border: 1px solid #3c3642;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cpe-library-item:hover {
+  border-color: #e67e22;
+  background: rgba(230, 126, 34, 0.1);
+  transform: translateX(-2px);
+}
+
+.cpe-library-item.added {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cpe-library-item-name {
+  font-size: 13px;
+  font-weight: bold;
+  color: #f4efe6;
+  margin-bottom: 4px;
+}
+
+.cpe-library-item-meta {
+  font-size: 11px;
+  color: #7a7280;
+  display: flex;
+  gap: 8px;
+}
+
+.cpe-library-empty {
+  padding: 20px 10px;
+  text-align: center;
+  color: #7a7280;
+  font-size: 12px;
+}
+
+/* ============ 挑战包关卡游玩样式 ============ */
+
+.cp-play-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(230, 126, 34, 0.12);
+  border: 1px solid rgba(230, 126, 34, 0.3);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.cp-play-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cp-play-pack-name {
+  font-size: 15px;
+  font-weight: bold;
+  color: #e67e22;
+}
+
+.cp-play-level-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #cec4ba;
+}
+
+.cp-play-level-index {
+  background: #e67e22;
+  color: #fff;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-weight: bold;
+}
+
+.cp-play-exit-btn {
+  background: #5a5260;
+  color: #f4efe6;
+  min-height: 34px;
+  font-size: 13px;
+}
+
+.cp-play-exit-btn:hover {
+  background: #7a7280;
+}
+
+/* 响应式调整 */
+@media (max-width: 1100px) {
+  .cpe-body {
+    grid-template-columns: 1fr;
+  }
+
+  .cpe-info,
+  .cpe-library {
+    border-right: none;
+    border-left: none;
+    border-bottom: 1px solid #3c3642;
+  }
+
+  .cpe-library {
+    border-bottom: none;
+  }
+}
+
+@media (max-width: 700px) {
+  .challenge-pack-content {
+    grid-template-columns: 1fr;
+  }
+
+  .cp-play-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .cp-play-info {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

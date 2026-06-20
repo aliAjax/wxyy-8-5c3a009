@@ -26,6 +26,7 @@
       </div>
       <div class="header-buttons">
         <button id="chapterBtn" type="button" class="chapter-toggle">章节模式</button>
+        <button id="challengePackBtn" type="button" class="challenge-pack-toggle">创作挑战包</button>
         <button id="tutorialBtn" type="button" class="tutorial-toggle">新手教学</button>
         <button id="dailyBtn" type="button" class="daily-toggle">每日挑战</button>
         <button id="achievementBtn" type="button" class="achievement-toggle">成就统计</button>
@@ -42,6 +43,63 @@
         <button id="chapterCloseBtn" type="button" class="editor-close">关闭</button>
       </div>
       <div id="chapterContent" class="chapter-content"></div>
+    </section>
+
+    <section id="challengePackPanel" class="challenge-pack-panel hidden">
+      <div class="challenge-pack-header">
+        <h2>🎨 创作挑战包</h2>
+        <div class="challenge-pack-actions">
+          <button id="challengePackCreateBtn" type="button">✨ 创建新挑战包</button>
+          <button id="challengePackImportBtn" type="button">📥 导入挑战包</button>
+          <button id="challengePackCloseBtn" type="button" class="editor-close">关闭</button>
+        </div>
+      </div>
+      <div id="challengePackContent" class="challenge-pack-content"></div>
+    </section>
+
+    <section id="challengePackEditor" class="challenge-pack-editor hidden">
+      <div class="cpe-header">
+        <h2 id="cpeTitle">✏️ 编辑挑战包</h2>
+        <div class="cpe-header-actions">
+          <button id="cpeExportBtn" type="button">📤 导出</button>
+          <button id="cpeSaveBtn" type="button">💾 保存</button>
+          <button id="cpeCloseBtn" type="button" class="editor-close">关闭</button>
+        </div>
+      </div>
+      <div class="cpe-body">
+        <aside class="panel cpe-info">
+          <h3>挑战包信息</h3>
+          <div class="cpe-form">
+            <div class="cpe-form-row">
+              <label>名称</label>
+              <input type="text" id="cpeName" maxlength="20" placeholder="挑战包名称">
+            </div>
+            <div class="cpe-form-row">
+              <label>描述</label>
+              <textarea id="cpeDescription" maxlength="100" placeholder="简短描述此挑战包的主题或难度"></textarea>
+            </div>
+            <div class="cpe-form-row">
+              <label>作者</label>
+              <input type="text" id="cpeAuthor" maxlength="20" placeholder="可选">
+            </div>
+          </div>
+          <div class="cpe-hint">
+            <p>💡 从右侧「关卡库」选择关卡添加到挑战包</p>
+            <p>关卡会按顺序解锁，必须通关上一关才能进入下一关</p>
+          </div>
+        </aside>
+        <section class="cpe-levels-section">
+          <div class="cpe-levels-header">
+            <h3>关卡列表（<span id="cpeLevelCount">0</span>）</h3>
+            <span class="cpe-levels-hint">拖动排序 · 每关可单独设置目标步数</span>
+          </div>
+          <div id="cpeLevelList" class="cpe-level-list"></div>
+        </section>
+        <aside class="panel cpe-library">
+          <h3>关卡库</h3>
+          <div id="cpeLibraryList" class="cpe-library-list"></div>
+        </aside>
+      </div>
     </section>
 
     <section class="game">

@@ -1463,4 +1463,352 @@ function isLevelSolvable() {
   return false;
 }
 
+// ============== 挑战包编辑器 ==============
+
+const cpeEl = document.getElementById("challengePackEditor");
+const cpeTitleEl = document.getElementById("cpeTitle");
+const cpeCloseBtn = document.getElementById("cpeCloseBtn");
+const cpeSaveBtn = document.getElementById("cpeSaveBtn");
+const cpeExportBtn = document.getElementById("cpeExportBtn");
+const cpeNameInput = document.getElementById("cpeName");
+const cpeDescInput = document.getElementById("cpeDescription");
+const cpeAuthorInput = document.getElementById("cpeAuthor");
+const cpeLevelListEl = document.getElementById("cpeLevelList");
+const cpeLibraryListEl = document.getElementById("cpeLibraryList");
+const cpeLevelCountEl = document.getElementById("cpeLevelCount");
+
+let cpeState = {
+  isOpen: false,
+  editingPackId: null,
+  pack: null,
+  dragSrcIndex: null
+};
+
+function openChallengePackEditor(packId) {
+  if (packId && typeof getChallengePack === "function") {
+    const existing = getChallengePack(packId);
+    if (existing) {
+      cpeState.pack = JSON.parse(JSON.stringify(existing));
+      cpeState.editingPackId = packId;
+    } else {
+      cpeState.pack = typeof defaultChallengePack === "function"
+        ? defaultChallengePack()
+        : { id: "cp_" + Date.now(), name: "新挑战包", description: "", author: "", levels: [] };
+      cpeState.editingPackId = null;
+    }
+  } else {
+    cpeState.pack = typeof defaultChallengePack === "function"
+      ? defaultChallengePack()
+      : { id: "cp_" + Date.now(), name: "新挑战包", description: "", author: "", levels: [] };
+    cpeState.editingPackId = null;
+  }
+
+  cpeState.isOpen = true;
+  cpeState.dragSrcIndex = null;
+
+  cpeTitleEl.textContent = cpeState.editingPackId ? "✏️ 编辑挑战包" : "✨ 创建新挑战包";
+  cpeNameInput.value = cpeState.pack.name || "";
+  cpeDescInput.value = cpeState.pack.description || "";
+  cpeAuthorInput.value = cpeState.pack.author || "";
+
+  if (!editorState.libraryOpen) loadLibraryFromStorage();
+
+  cpeEl.classList.remove("hidden");
+  closeChallengePackPanel();
+  renderCpeLevelList();
+  renderCpeLibraryList();
+}
+
+function closeChallengePackEditor() {
+  if (cpeState.pack && cpeState.pack.levels && cpeState.pack.levels.length > 0) {
+    if (!confirm("关闭挑战包编辑器？未保存的更改会丢失。")) return;
+  }
+  cpeState.isOpen = false;
+  cpeState.pack = null;
+  cpeState.editingPackId = null;
+  cpeState.dragSrcIndex = null;
+  cpeEl.classList.add("hidden");
+}
+
+function saveCpePack() {
+  if (!cpeState.pack) return;
+
+  const name = cpeNameInput.value.trim();
+  if (!name) {
+    alert("请输入挑战包名称");
+    cpeNameInput.focus();
+    return;
+  }
+  if (!cpeState.pack.levels || cpeState.pack.levels.length === 0) {
+    alert("挑战包至少需要包含 1 个关卡");
+    return;
+  }
+
+  cpeState.pack.name = name;
+  cpeState.pack.description = cpeDescInput.value.trim();
+  cpeState.pack.author = cpeAuthorInput.value.trim();
+  cpeState.pack.updatedAt = Date.now();
+
+  if (typeof saveChallengePack === "function") {
+    if (saveChallengePack(cpeState.pack)) {
+      cpeState.editingPackId = cpeState.pack.id;
+      alert("✓ 挑战包已保存！");
+      if (typeof renderChallengePackPanel === "function" && !challengePackPanelEl.classList.contains("hidden")) {
+        renderChallengePackPanel();
+      }
+    }
+  }
+}
+
+function exportCpePack() {
+  if (!cpeState.pack || !cpeState.pack.id) {
+    alert("请先保存挑战包再导出");
+    return;
+  }
+  if (typeof exportChallengePack === "function") {
+    exportChallengePack(cpeState.pack.id);
+  }
+}
+
+function addLibraryLevelToCpe(libraryId) {
+  if (!cpeState.pack) return;
+  const item = editorState.library.find(l => l.id === libraryId);
+  if (!item) return;
+  if (!cpeState.pack.levels) cpeState.pack.levels = [];
+
+  const estimated = item.data && typeof diagnoseLevel === "function"
+    ? (() => {
+        try {
+          const r = diagnoseLevel(item.data);
+          return r && r.solution ? Math.max(10, r.solution.steps || 20) : 20;
+        } catch (e) { return 20; }
+      })()
+    : 20;
+
+  cpeState.pack.levels.push({
+    libraryId: libraryId,
+    name: item.name || "未命名关卡",
+    targetActions: estimated,
+    level: JSON.parse(JSON.stringify(item.data))
+  });
+
+  renderCpeLevelList();
+  renderCpeLibraryList();
+}
+
+function removeCpeLevel(index) {
+  if (!cpeState.pack || !cpeState.pack.levels) return;
+  if (!confirm("确定要从挑战包中移除这个关卡吗？")) return;
+  cpeState.pack.levels.splice(index, 1);
+  renderCpeLevelList();
+  renderCpeLibraryList();
+}
+
+function updateCpeLevelTarget(index, value) {
+  if (!cpeState.pack || !cpeState.pack.levels || !cpeState.pack.levels[index]) return;
+  const n = parseInt(value, 10);
+  cpeState.pack.levels[index].targetActions = isNaN(n) || n < 1 ? 10 : n;
+}
+
+function updateCpeLevelName(index, value) {
+  if (!cpeState.pack || !cpeState.pack.levels || !cpeState.pack.levels[index]) return;
+  cpeState.pack.levels[index].name = value || "未命名关卡";
+}
+
+function moveCpeLevel(from, to) {
+  if (!cpeState.pack || !cpeState.pack.levels) return;
+  if (from < 0 || to < 0 || from >= cpeState.pack.levels.length || to >= cpeState.pack.levels.length) return;
+  if (from === to) return;
+  const item = cpeState.pack.levels.splice(from, 1)[0];
+  cpeState.pack.levels.splice(to, 0, item);
+  renderCpeLevelList();
+}
+
+function renderCpeLevelList() {
+  if (!cpeState.pack) return;
+  const levels = cpeState.pack.levels || [];
+  cpeLevelCountEl.textContent = String(levels.length);
+
+  if (levels.length === 0) {
+    cpeLevelListEl.innerHTML = '<div class="cpe-level-empty">← 从右侧关卡库选择关卡添加到这里<br><br>关卡将按顺序解锁，必须通关上一关才能进入下一关</div>';
+    return;
+  }
+
+  const addedIds = new Set(levels.map(l => l.libraryId));
+
+  cpeLevelListEl.innerHTML = levels.map((entry, idx) => {
+    const data = entry.level || {};
+    const exhibitCount = data.exhibits ? data.exhibits.length : 0;
+    const guardCount = data.guards ? data.guards.length : 0;
+    return `
+      <div class="cpe-level-item" draggable="true" data-cpe-index="${idx}">
+        <span class="cpe-level-drag-handle" title="拖动排序">⋮⋮</span>
+        <span class="cpe-level-index">${idx + 1}</span>
+        <div class="cpe-level-info">
+          <div class="cpe-level-name" title="${escapeCpeHtml(entry.name || '')}">
+            <input type="text" class="cpe-level-name-input"
+              value="${escapeCpeAttr(entry.name || '')}"
+              data-cpe-name-index="${idx}" maxlength="15"
+              style="background:transparent;border:none;color:#f4efe6;font-weight:bold;font-size:14px;padding:0;width:100%;outline:none;">
+          </div>
+          <div class="cpe-level-meta">
+            <span>展柜 ${exhibitCount}</span>
+            <span>巡逻员 ${guardCount}</span>
+          </div>
+        </div>
+        <div class="cpe-level-target">
+          <label>目标步数</label>
+          <input type="number" min="1" max="999"
+            value="${entry.targetActions || 20}"
+            data-cpe-target-index="${idx}">
+        </div>
+        <button type="button" class="cpe-level-remove" data-cpe-remove-index="${idx}" title="移除">✕</button>
+      </div>
+    `;
+  }).join("");
+
+  cpeLevelListEl.querySelectorAll(".cpe-level-item").forEach(item => {
+    const idx = parseInt(item.dataset.cpeIndex, 10);
+
+    item.addEventListener("dragstart", (e) => {
+      cpeState.dragSrcIndex = idx;
+      item.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+    });
+    item.addEventListener("dragend", () => {
+      item.classList.remove("dragging");
+      cpeLevelListEl.querySelectorAll(".drag-over").forEach(el => el.classList.remove("drag-over"));
+      cpeState.dragSrcIndex = null;
+    });
+    item.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      item.classList.add("drag-over");
+    });
+    item.addEventListener("dragleave", () => {
+      item.classList.remove("drag-over");
+    });
+    item.addEventListener("drop", (e) => {
+      e.preventDefault();
+      item.classList.remove("drag-over");
+      if (cpeState.dragSrcIndex !== null && cpeState.dragSrcIndex !== idx) {
+        moveCpeLevel(cpeState.dragSrcIndex, idx);
+      }
+    });
+  });
+
+  cpeLevelListEl.querySelectorAll("[data-cpe-remove-index]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.cpeRemoveIndex, 10);
+      removeCpeLevel(idx);
+    });
+  });
+
+  cpeLevelListEl.querySelectorAll("[data-cpe-target-index]").forEach(input => {
+    input.addEventListener("change", () => {
+      const idx = parseInt(input.dataset.cpeTargetIndex, 10);
+      updateCpeLevelTarget(idx, input.value);
+    });
+  });
+
+  cpeLevelListEl.querySelectorAll("[data-cpe-name-index]").forEach(input => {
+    input.addEventListener("change", () => {
+      const idx = parseInt(input.dataset.cpeNameIndex, 10);
+      updateCpeLevelName(idx, input.value);
+    });
+  });
+}
+
+function renderCpeLibraryList() {
+  if (!cpeState.pack) return;
+  const addedIds = new Set((cpeState.pack.levels || []).map(l => l.libraryId).filter(Boolean));
+
+  if (!editorState.library || editorState.library.length === 0) {
+    cpeLibraryListEl.innerHTML = `<div class="cpe-library-empty">关卡库为空<br><br>请先在编辑器中创建并保存关卡</div>`;
+    return;
+  }
+
+  const sorted = [...editorState.library].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  cpeLibraryListEl.innerHTML = sorted.map(item => {
+    const data = item.data || {};
+    const exhibitCount = data.exhibits ? data.exhibits.length : 0;
+    const guardCount = data.guards ? data.guards.length : 0;
+    const isAdded = addedIds.has(item.id);
+    return `
+      <div class="cpe-library-item ${isAdded ? 'added' : ''}"
+        data-lib-id="${item.id}"
+        title="${isAdded ? '已添加到挑战包' : '点击添加到挑战包'}">
+        <div class="cpe-library-item-name">${escapeCpeHtml(item.name)}</div>
+        <div class="cpe-library-item-meta">
+          <span>展柜 ${exhibitCount}</span>
+          <span>巡逻员 ${guardCount}</span>
+          ${isAdded ? '<span style="color:#2ecc71">✓ 已添加</span>' : ''}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  cpeLibraryListEl.querySelectorAll(".cpe-library-item").forEach(item => {
+    item.addEventListener("click", () => {
+      if (item.classList.contains("added")) return;
+      addLibraryLevelToCpe(item.dataset.libId);
+    });
+  });
+}
+
+function escapeCpeHtml(str) {
+  if (!str) return "";
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function escapeCpeAttr(str) {
+  if (!str) return "";
+  return String(str).replace(/"/g, "&quot;").replace(/'/g, "&apos;");
+}
+
+function bindCpeControls() {
+  if (cpeCloseBtn) {
+    cpeCloseBtn.addEventListener("click", closeChallengePackEditor);
+  }
+  if (cpeSaveBtn) {
+    cpeSaveBtn.addEventListener("click", saveCpePack);
+  }
+  if (cpeExportBtn) {
+    cpeExportBtn.addEventListener("click", exportCpePack);
+  }
+  if (cpeNameInput) {
+    cpeNameInput.addEventListener("input", () => {
+      if (cpeState.pack) cpeState.pack.name = cpeNameInput.value;
+    });
+  }
+  if (cpeDescInput) {
+    cpeDescInput.addEventListener("input", () => {
+      if (cpeState.pack) cpeState.pack.description = cpeDescInput.value;
+    });
+  }
+  if (cpeAuthorInput) {
+    cpeAuthorInput.addEventListener("input", () => {
+      if (cpeState.pack) cpeState.pack.author = cpeAuthorInput.value;
+    });
+  }
+
+  if (typeof editorLibraryBtn !== "undefined") {
+    const origClick = editorLibraryBtn.onclick;
+  }
+
+  const origToggle = typeof toggleEditor === "function" ? toggleEditor : null;
+  if (origToggle) {
+    window.toggleEditor = function() {
+      if (cpeState.isOpen) {
+        return;
+      }
+      return origToggle.apply(this, arguments);
+    };
+  }
+}
+
+bindCpeControls();
+
 initEditor();

@@ -246,11 +246,21 @@ function autoSave() {
   if (state.levelIndex === -2) return;
   if (!state.history || state.history.length <= 1) return;
   try {
+    let challengePackInfo = null;
+    if (challengePackState && challengePackState.playing) {
+      const pack = getChallengePack(challengePackState.currentPackId);
+      challengePackInfo = {
+        packId: challengePackState.currentPackId,
+        levelIndex: challengePackState.currentLevelIndex,
+        packName: pack ? pack.name : ""
+      };
+    }
     const data = {
       version: 1,
       timestamp: Date.now(),
       levelIndex: state.levelIndex,
       customLevelSource: customLevelSource,
+      challengePackInfo: challengePackInfo,
       state: snapshotState("autosave"),
       history: state.history.map(h => JSON.parse(JSON.stringify(h))),
       tutorialState: {
@@ -296,6 +306,10 @@ function getAutosaveDescription(data) {
   if (!data) return "";
   const li = data.levelIndex;
   const name = data.state.level ? data.state.level.name : "";
+  if (li === -5) {
+    const cpi = data.challengePackInfo;
+    return "挑战包模式 — " + (cpi ? cpi.packName : "") + " 第" + (cpi ? (cpi.levelIndex + 1) : 1) + "关";
+  }
   if (li === -3) return "每日挑战 — " + name;
   if (li === -1) return "自定义试玩 — " + name;
   if (li >= 0) return "关卡" + name;
@@ -315,7 +329,18 @@ function restoreFromAutosave(data) {
   if (!data || !data.state) return false;
   try {
     const snap = data.state;
-    if (data.levelIndex === -1 || data.levelIndex === -3) {
+    if (data.levelIndex === -5 && data.challengePackInfo) {
+      const cpi = data.challengePackInfo;
+      if (!cpi || !cpi.packId) return false;
+      challengePackState.currentPackId = cpi.packId;
+      challengePackState.currentLevelIndex = cpi.levelIndex;
+      challengePackState.playing = true;
+      const pack = getChallengePack(cpi.packId);
+      if (!pack || !pack.levels[cpi.levelIndex]) return false;
+      customLevelSource = JSON.parse(JSON.stringify(pack.levels[cpi.levelIndex].level));
+      state = freshStateFromLevel(customLevelSource);
+      state.levelIndex = -5;
+    } else if (data.levelIndex === -1 || data.levelIndex === -3) {
       if (!data.customLevelSource) return false;
       customLevelSource = JSON.parse(JSON.stringify(data.customLevelSource));
       state = freshStateFromLevel(customLevelSource);
@@ -344,6 +369,9 @@ function restoreFromAutosave(data) {
       toggleBackToEditorBtn(true);
     } else {
       toggleBackToEditorBtn(false);
+    }
+    if (data.levelIndex === -5) {
+      renderCpPlayHeader();
     }
     render();
     if (data.levelIndex === -3) {
@@ -1372,11 +1400,13 @@ function closeChapterPanel() {
 }
 
 function init() {
+  migrateOldStorageIfNeeded();
   renderLevelButtons();
   state = freshState(0);
   bindControls();
   bindReplayControls();
   bindAchievementControls();
+  bindChallengePackControls();
   chapterBtn.addEventListener("click", () => {
     if (chapterPanelEl.classList.contains("hidden")) {
       openChapterPanel();
@@ -1743,6 +1773,10 @@ function restartLevel() {
     return;
   }
   gameplayMetrics.hasRetried = true;
+  if (challengePackState && challengePackState.playing) {
+    loadChallengePackLevel();
+    return;
+  }
   if (state.levelIndex === -1 && customLevelSource) {
     state = freshStateFromLevel(customLevelSource);
     gameplayMetrics.currentActions = 0;
@@ -2063,6 +2097,10 @@ function win() {
   state.done = true;
   autoSaveClear();
 
+  if (updateChallengePackProgressOnWin()) {
+    return;
+  }
+
   updateStatsOnWin(state.levelIndex);
 
   if (state.levelIndex === -3) {
@@ -2250,6 +2288,42 @@ function fail(reason) {
   state.done = true;
   autoSaveClear();
   gameplayMetrics.hasRetried = true;
+
+  if (challengePackState && challengePackState.playing) {
+    resultEl.innerHTML = `
+      <h2>行动失败</h2>
+      <p>${reason}</p>
+      <p>挑战包：${escapeCpHtml(challengePackState.currentPackId ? (getChallengePack(challengePackState.currentPackId)?.name || "") : "")} - 第 ${challengePackState.currentLevelIndex + 1} 关</p>
+      <button id="failRetryBtn" type="button">重试本关</button>
+      <button id="failCpBackBtn" type="button" class="retry-stars-btn">返回挑战包列表</button>
+      <button id="replayBtn" type="button" class="replay-trigger">查看本局回放</button>
+    `;
+    resultEl.classList.remove("daily-result-style");
+    resultEl.classList.remove("hidden");
+    addLog(reason);
+    if (!state.history[state.history.length - 1] || state.history[state.history.length - 1].action !== "被发现") {
+      recordHistory("被发现");
+    }
+    const replayBtn = document.getElementById("replayBtn");
+    if (replayBtn) replayBtn.addEventListener("click", () => openReplay(false));
+    const failRetryBtn = document.getElementById("failRetryBtn");
+    if (failRetryBtn) failRetryBtn.addEventListener("click", () => {
+      resultEl.classList.add("hidden");
+      loadChallengePackLevel();
+    });
+    const backBtn = document.getElementById("failCpBackBtn");
+    if (backBtn) backBtn.addEventListener("click", () => {
+      resultEl.classList.add("hidden");
+      const wrap = document.querySelector(".cp-play-header-wrap");
+      if (wrap) wrap.remove();
+      challengePackState.playing = false;
+      challengePackState.currentPackId = null;
+      challengePackState.currentLevelIndex = 0;
+      openChallengePackPanel();
+    });
+    render();
+    return;
+  }
 
   updateStatsOnFail(state.levelIndex, reason);
 
@@ -5371,6 +5445,622 @@ function unifiedSolveLevel(level, options = {}) {
     steps: 0,
     totalActions: iterations
   };
+}
+
+// ============== 创作挑战包系统 ==============
+
+const CHALLENGE_PACK_STORAGE_KEY = "museum_challenge_packs_v1";
+const CHALLENGE_PACK_PROGRESS_KEY = "museum_challenge_pack_progress_v1";
+const CHALLENGE_PACK_FORMAT_VERSION = 1;
+
+const challengePackPanelEl = document.getElementById("challengePackPanel");
+const challengePackContentEl = document.getElementById("challengePackContent");
+const challengePackBtnEl = document.getElementById("challengePackBtn");
+const challengePackCloseBtn = document.getElementById("challengePackCloseBtn");
+const challengePackImportBtn = document.getElementById("challengePackImportBtn");
+
+let challengePackState = {
+  currentPackId: null,
+  currentLevelIndex: 0,
+  playing: false
+};
+
+function defaultChallengePack() {
+  return {
+    id: "cp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+    name: "新挑战包",
+    description: "",
+    author: "",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    version: CHALLENGE_PACK_FORMAT_VERSION,
+    levels: []
+  };
+}
+
+function loadChallengePacks() {
+  try {
+    const raw = localStorage.getItem(CHALLENGE_PACK_STORAGE_KEY);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    if (!Array.isArray(data)) return [];
+    return data.map(pack => ({
+      ...defaultChallengePack(),
+      ...pack,
+      levels: Array.isArray(pack.levels) ? pack.levels : []
+    }));
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveChallengePacks(packs) {
+  try {
+    localStorage.setItem(CHALLENGE_PACK_STORAGE_KEY, JSON.stringify(packs));
+    return true;
+  } catch (e) {
+    alert("保存失败，存储空间不足");
+    return false;
+  }
+}
+
+function getChallengePack(packId) {
+  const packs = loadChallengePacks();
+  return packs.find(p => p.id === packId) || null;
+}
+
+function saveChallengePack(pack) {
+  const packs = loadChallengePacks();
+  pack.updatedAt = Date.now();
+  const idx = packs.findIndex(p => p.id === pack.id);
+  if (idx !== -1) {
+    packs[idx] = pack;
+  } else {
+    packs.push(pack);
+  }
+  return saveChallengePacks(packs);
+}
+
+function deleteChallengePack(packId) {
+  const packs = loadChallengePacks().filter(p => p.id !== packId);
+  saveChallengePacks(packs);
+  const progress = loadChallengePackProgress();
+  delete progress[packId];
+  saveChallengePackProgress(progress);
+}
+
+function loadChallengePackProgress() {
+  try {
+    const raw = localStorage.getItem(CHALLENGE_PACK_PROGRESS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveChallengePackProgress(progress) {
+  try {
+    localStorage.setItem(CHALLENGE_PACK_PROGRESS_KEY, JSON.stringify(progress));
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function getPackProgress(packId) {
+  const all = loadChallengePackProgress();
+  if (!all[packId]) {
+    all[packId] = {
+      levels: {},
+      completed: false,
+      totalStars: 0,
+      lastPlayedAt: null
+    };
+    saveChallengePackProgress(all);
+  }
+  return all[packId];
+}
+
+function getPackLevelProgress(packId, levelIndex) {
+  const progress = getPackProgress(packId);
+  const key = String(levelIndex);
+  if (!progress.levels[key]) {
+    progress.levels[key] = {
+      completed: false,
+      bestActions: null,
+      bestTurns: null,
+      bestStars: 0,
+      wins: 0,
+      noWait: false,
+      replay: null
+    };
+  }
+  return progress.levels[key];
+}
+
+function savePackLevelProgress(packId, levelIndex, levelProgress) {
+  const all = loadChallengePackProgress();
+  if (!all[packId]) {
+    all[packId] = { levels: {}, completed: false, totalStars: 0, lastPlayedAt: null };
+  }
+  all[packId].levels[String(levelIndex)] = levelProgress;
+  all[packId].lastPlayedAt = Date.now();
+  const pack = getChallengePack(packId);
+  if (pack) {
+    let totalStars = 0;
+    let allCompleted = pack.levels.length > 0;
+    for (let i = 0; i < pack.levels.length; i++) {
+      const lp = all[packId].levels[String(i)];
+      if (lp) {
+        totalStars += lp.bestStars || 0;
+        if (!lp.completed) allCompleted = false;
+      } else {
+        allCompleted = false;
+      }
+    }
+    all[packId].totalStars = totalStars;
+    all[packId].completed = allCompleted;
+  }
+  saveChallengePackProgress(all);
+}
+
+function isPackLevelUnlocked(packId, levelIndex) {
+  if (levelIndex === 0) return true;
+  const prevProgress = getPackLevelProgress(packId, levelIndex - 1);
+  return prevProgress.completed;
+}
+
+function calculatePackStars(currentActions, targetActions, hasRetried, hintsUsedTotal) {
+  const target = targetActions || 20;
+  if (!hasRetried && hintsUsedTotal === 0 && currentActions <= Math.ceil(target * 1.2)) return 3;
+  if (!hasRetried && hintsUsedTotal <= 1 && currentActions <= Math.ceil(target * 1.5)) return 2;
+  if (hintsUsedTotal === 0 && currentActions <= Math.ceil(target * 1.8)) return 2;
+  return 1;
+}
+
+function renderChallengePackPanel() {
+  const packs = loadChallengePacks();
+  const sortedPacks = [...packs].sort((a, b) => b.updatedAt - a.updatedAt);
+
+  if (sortedPacks.length === 0) {
+    challengePackContentEl.innerHTML = `
+      <div class="cp-empty">
+        <div class="cp-empty-icon">📦</div>
+        <div class="cp-empty-title">还没有创作挑战包</div>
+        <div class="cp-empty-desc">打开关卡编辑器，创建自定义关卡并组织成挑战包，或导入他人分享的挑战包</div>
+        <button id="cpEmptyCreateBtn" type="button">✨ 打开编辑器创建</button>
+      </div>
+    `;
+    const btn = document.getElementById("cpEmptyCreateBtn");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        closeChallengePackPanel();
+        if (typeof toggleEditor === "function") toggleEditor();
+      });
+    }
+    return;
+  }
+
+  challengePackContentEl.innerHTML = sortedPacks.map(pack => {
+    const progress = getPackProgress(pack.id);
+    const totalLevels = pack.levels.length;
+    const completedLevels = Object.values(progress.levels).filter(l => l.completed).length;
+    const totalStars = progress.totalStars || 0;
+    const maxStars = totalLevels * 3;
+    const pct = totalLevels > 0 ? Math.round((completedLevels / totalLevels) * 100) : 0;
+    const isCompleted = progress.completed;
+    const isUnlocked = true;
+    const lastPlayed = progress.lastPlayedAt ? new Date(progress.lastPlayedAt) : null;
+    const lastPlayedStr = lastPlayed ? `${lastPlayed.getMonth() + 1}/${lastPlayed.getDate()}` : "未玩过";
+
+    const starsStr = totalStars > 0
+      ? Array.from({ length: 3 }, (_, i) => i < Math.ceil(totalStars / Math.max(1, totalLevels)) ? "★" : "☆").join("")
+      : "";
+
+    return `
+      <div class="cp-card ${isCompleted ? "completed" : "unlocked"}" data-pack-id="${pack.id}">
+        <div class="cp-card-header">
+          <div>
+            <div class="cp-card-title">${escapeCpHtml(pack.name)}</div>
+            ${pack.author ? `<div class="cp-card-author">作者：${escapeCpHtml(pack.author)}</div>` : ""}
+          </div>
+          <div class="cp-card-stars">${starsStr}${totalStars > 0 ? ` ${totalStars}/${maxStars}` : ""}</div>
+        </div>
+        <div class="cp-card-body">
+          <p class="cp-card-desc">${escapeCpHtml(pack.description) || "（暂无描述）"}</p>
+          <div class="cp-card-progress"><div class="cp-card-progress-fill" style="width: ${pct}%"></div></div>
+          <div class="cp-card-meta">
+            <span>关卡 ${completedLevels}/${totalLevels}</span>
+            <span>上次：${lastPlayedStr}</span>
+          </div>
+        </div>
+        <div class="cp-card-actions">
+          <button type="button" class="cp-btn-play" data-action="play" data-pack-id="${pack.id}">▶ 开始游玩</button>
+          <button type="button" class="cp-btn-edit" data-action="edit" data-pack-id="${pack.id}">✏️ 编辑</button>
+          <button type="button" class="cp-btn-delete" data-action="delete" data-pack-id="${pack.id}">🗑</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  challengePackContentEl.querySelectorAll(".cp-btn-play").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startChallengePack(btn.dataset.packId);
+    });
+  });
+  challengePackContentEl.querySelectorAll(".cp-btn-edit").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (typeof openChallengePackEditor === "function") {
+        openChallengePackEditor(btn.dataset.packId);
+      }
+    });
+  });
+  challengePackContentEl.querySelectorAll(".cp-btn-delete").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const pack = getChallengePack(btn.dataset.packId);
+      if (pack && confirm(`确定要删除挑战包"${pack.name}"吗？进度也会一并删除，此操作不可撤销。`)) {
+        deleteChallengePack(btn.dataset.packId);
+        renderChallengePackPanel();
+      }
+    });
+  });
+}
+
+function escapeCpHtml(str) {
+  if (!str) return "";
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function openChallengePackPanel() {
+  challengePackPanelEl.classList.remove("hidden");
+  challengePackBtnEl.classList.add("active");
+  if (!chapterPanelEl.classList.contains("hidden")) closeChapterPanel();
+  closeAchievement();
+  if (!editorState || !editorState.isOpen) {
+  } else if (typeof toggleEditor === "function") {
+    toggleEditor();
+  }
+  renderChallengePackPanel();
+}
+
+function closeChallengePackPanel() {
+  challengePackPanelEl.classList.add("hidden");
+  challengePackBtnEl.classList.remove("active");
+}
+
+function startChallengePack(packId) {
+  const pack = getChallengePack(packId);
+  if (!pack || pack.levels.length === 0) {
+    alert("该挑战包为空，请先添加关卡");
+    return;
+  }
+  challengePackState.currentPackId = packId;
+  challengePackState.playing = true;
+  let startIndex = 0;
+  for (let i = 0; i < pack.levels.length; i++) {
+    if (!isPackLevelUnlocked(packId, i)) break;
+    const lp = getPackLevelProgress(packId, i);
+    if (!lp.completed) {
+      startIndex = i;
+      break;
+    }
+    startIndex = i + 1;
+  }
+  if (startIndex >= pack.levels.length) startIndex = 0;
+  challengePackState.currentLevelIndex = startIndex;
+  closeChallengePackPanel();
+  loadChallengePackLevel();
+}
+
+function loadChallengePackLevel() {
+  const pack = getChallengePack(challengePackState.currentPackId);
+  if (!pack) return;
+  const levelEntry = pack.levels[challengePackState.currentLevelIndex];
+  if (!levelEntry) return;
+
+  customLevelSource = JSON.parse(JSON.stringify(levelEntry.level));
+  state = freshStateFromLevel(customLevelSource);
+  state.levelIndex = -5;
+  resetGameplayMetrics();
+  initObjectiveTracking();
+  resultEl.classList.add("hidden");
+  resultEl.classList.remove("daily-result-style");
+  autoSaveClear();
+  toggleBackToEditorBtn(false);
+  tutorialState.active = false;
+  tutorialHintEl.classList.add("hidden");
+  tutorialBtn.classList.remove("active");
+  dailyBtn.classList.remove("active");
+  dailyInfo && (dailyInfo.innerHTML = "");
+
+  recordHistory("开局");
+  renderCpPlayHeader();
+  render();
+}
+
+function renderCpPlayHeader() {
+  const pack = getChallengePack(challengePackState.currentPackId);
+  if (!pack) return;
+  const existing = document.querySelector(".cp-play-header-wrap");
+  if (existing) existing.remove();
+
+  const gameSection = document.querySelector(".game");
+  if (!gameSection) return;
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "cp-play-header-wrap";
+  wrapper.innerHTML = `
+    <div class="cp-play-header">
+      <div class="cp-play-info">
+        <span class="cp-play-pack-name">🎁 ${escapeCpHtml(pack.name)}</span>
+        <span class="cp-play-level-nav">
+          关卡 <span class="cp-play-level-index">${challengePackState.currentLevelIndex + 1}</span>
+          / ${pack.levels.length}
+          ${pack.levels[challengePackState.currentLevelIndex] ? `· ${escapeCpHtml(pack.levels[challengePackState.currentLevelIndex].name)}` : ""}
+        </span>
+      </div>
+      <button id="cpPlayExitBtn" type="button" class="cp-play-exit-btn">退出挑战包</button>
+    </div>
+  `;
+  gameSection.parentNode.insertBefore(wrapper, gameSection);
+
+  const exitBtn = document.getElementById("cpPlayExitBtn");
+  if (exitBtn) {
+    exitBtn.addEventListener("click", () => {
+      if (confirm("确定要退出挑战包吗？当前进度会保存。")) {
+        exitChallengePack();
+      }
+    });
+  }
+}
+
+function exitChallengePack() {
+  challengePackState.playing = false;
+  challengePackState.currentPackId = null;
+  challengePackState.currentLevelIndex = 0;
+  const wrap = document.querySelector(".cp-play-header-wrap");
+  if (wrap) wrap.remove();
+  autoSaveClear();
+  loadLevel(0);
+}
+
+function updateChallengePackProgressOnWin() {
+  if (!challengePackState.playing || !challengePackState.currentPackId) return false;
+
+  const packId = challengePackState.currentPackId;
+  const levelIndex = challengePackState.currentLevelIndex;
+  const pack = getChallengePack(packId);
+  if (!pack) return false;
+
+  const levelEntry = pack.levels[levelIndex];
+  const targetActions = levelEntry ? levelEntry.targetActions : 20;
+  const stats = calculateGameStats();
+  const stars = calculatePackStars(
+    gameplayMetrics.currentActions,
+    targetActions,
+    gameplayMetrics.hasRetried,
+    gameplayMetrics.hintsUsedTotal
+  );
+
+  const lp = getPackLevelProgress(packId, levelIndex);
+  const prevStars = lp.bestStars || 0;
+  const isNewBest = stars > prevStars;
+
+  lp.completed = true;
+  lp.wins = (lp.wins || 0) + 1;
+  if (lp.bestActions === null || gameplayMetrics.currentActions < lp.bestActions) {
+    lp.bestActions = gameplayMetrics.currentActions;
+  }
+  if (lp.bestTurns === null || stats.turns < lp.bestTurns) {
+    lp.bestTurns = stats.turns;
+  }
+  if (stars > (lp.bestStars || 0)) {
+    lp.bestStars = stars;
+  }
+  if (stats.noWait) {
+    lp.noWait = true;
+  }
+  try {
+    const hs = state.history.map(h => ({ action: h.action, player: { ...h.player }, ap: h.ap }));
+    if (hs.length > 2) lp.replay = hs.slice(0, 500);
+  } catch (e) {}
+
+  savePackLevelProgress(packId, levelIndex, lp);
+
+  const isLastLevel = levelIndex >= pack.levels.length - 1;
+  const hasNext = !isLastLevel && isPackLevelUnlocked(packId, levelIndex + 1);
+
+  let nextBtnHtml = "";
+  if (isLastLevel) {
+    const finalProgress = getPackProgress(packId);
+    if (finalProgress.completed) {
+      nextBtnHtml = `<p class="all-complete-msg">🎉 恭喜！你已通关整个挑战包！<br>总星数：${finalProgress.totalStars}/${pack.levels.length * 3} ⭐</p>
+        <button id="cpFinishBtn" type="button" class="next-level-btn">返回挑战包列表</button>`;
+    } else {
+      nextBtnHtml = `<button id="cpFinishBtn" type="button" class="next-level-btn">返回挑战包列表</button>`;
+    }
+  } else {
+    nextBtnHtml = `<button id="cpNextLevelBtn" type="button" class="next-level-btn">下一关（${pack.levels[levelIndex + 1] ? escapeCpHtml(pack.levels[levelIndex + 1].name) : ""}）</button>
+      <button id="cpFinishBtn" type="button" class="retry-stars-btn">返回挑战包列表</button>`;
+  }
+
+  const starDisplay = renderStars(stars);
+  const bestStarDisplay = isNewBest
+    ? `<span class="star-new-best">新纪录！</span>`
+    : `<span class="star-prev-best">历史最佳：${renderStars(prevStars)}</span>`;
+
+  resultEl.innerHTML = `
+    <h2>挑战包关卡完成</h2>
+    <div class="star-rating">
+      <span class="star-display">${starDisplay}</span>
+      ${bestStarDisplay}
+    </div>
+    <div class="star-breakdown">
+      <p>行动数：${gameplayMetrics.currentActions}（三星 ≤${Math.ceil((targetActions || 20) * 1.2)}）</p>
+      <p>${gameplayMetrics.hasRetried ? "⚠️ 有重试记录" : "✓ 无重试"}</p>
+      <p>使用提示：${gameplayMetrics.hintsUsedTotal}次</p>
+    </div>
+    <p>${escapeCpHtml(pack.name)} - 第 ${levelIndex + 1}/${pack.levels.length} 关</p>
+    ${nextBtnHtml}
+    <button id="cpReplayBtn" type="button" class="replay-trigger">查看本局回放</button>
+    <button id="cpRetryBtn" type="button" class="retry-stars-btn">重试本关</button>
+  `;
+  resultEl.classList.remove("daily-result-style");
+  resultEl.classList.remove("hidden");
+  addLog("警报没有响，展厅恢复安静。挑战包关卡完成！");
+  recordHistory("通关成功");
+
+  const replayBtn = document.getElementById("cpReplayBtn");
+  if (replayBtn) replayBtn.addEventListener("click", () => openReplay(true));
+
+  const retryBtn = document.getElementById("cpRetryBtn");
+  if (retryBtn) {
+    retryBtn.addEventListener("click", () => {
+      gameplayMetrics.hasRetried = true;
+      resultEl.classList.add("hidden");
+      loadChallengePackLevel();
+    });
+  }
+
+  const nextBtn = document.getElementById("cpNextLevelBtn");
+  if (nextBtn) {
+    nextBtn.addEventListener("click", () => {
+      resultEl.classList.add("hidden");
+      challengePackState.currentLevelIndex++;
+      loadChallengePackLevel();
+    });
+  }
+
+  const finishBtn = document.getElementById("cpFinishBtn");
+  if (finishBtn) {
+    finishBtn.addEventListener("click", () => {
+      resultEl.classList.add("hidden");
+      const wrap = document.querySelector(".cp-play-header-wrap");
+      if (wrap) wrap.remove();
+      challengePackState.playing = false;
+      challengePackState.currentPackId = null;
+      challengePackState.currentLevelIndex = 0;
+      openChallengePackPanel();
+    });
+  }
+
+  render();
+  return true;
+}
+
+function importChallengePack() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = ".json,application/json";
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        if (!data || !Array.isArray(data.levels) || typeof data.name !== "string") {
+          alert("文件格式错误：不是有效的挑战包文件");
+          return;
+        }
+        const newPack = {
+          ...defaultChallengePack(),
+          id: "cp_" + Date.now() + "_" + Math.random().toString(36).slice(2, 8),
+          name: data.name + (data.name.endsWith("（导入）") ? "" : "（导入）"),
+          description: data.description || "",
+          author: data.author || "",
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          levels: data.levels.map(l => ({
+            libraryId: l.libraryId || "",
+            name: l.name || "未命名关卡",
+            targetActions: l.targetActions || 20,
+            level: l.level || null
+          })).filter(l => l.level)
+        };
+        if (newPack.levels.length === 0) {
+          alert("导入失败：没有有效的关卡数据");
+          return;
+        }
+        saveChallengePack(newPack);
+        renderChallengePackPanel();
+        alert(`成功导入挑战包"${newPack.name}"，包含 ${newPack.levels.length} 个关卡`);
+      } catch (err) {
+        alert("导入失败：文件解析错误 - " + err.message);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function exportChallengePack(packId) {
+  const pack = getChallengePack(packId);
+  if (!pack) return;
+  const exportData = {
+    format: "museum_challenge_pack",
+    version: pack.version || CHALLENGE_PACK_FORMAT_VERSION,
+    exportAt: Date.now(),
+    name: pack.name,
+    description: pack.description,
+    author: pack.author,
+    levels: pack.levels.map(l => ({
+      name: l.name,
+      targetActions: l.targetActions,
+      level: l.level
+    }))
+  };
+  const json = JSON.stringify(exportData, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const safeName = (pack.name || "challenge_pack").replace(/[^\w\u4e00-\u9fa5-]/g, "_");
+  a.download = `${safeName}_挑战包.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function bindChallengePackControls() {
+  challengePackBtnEl.addEventListener("click", () => {
+    if (challengePackPanelEl.classList.contains("hidden")) {
+      openChallengePackPanel();
+    } else {
+      closeChallengePackPanel();
+    }
+  });
+  if (challengePackCloseBtn) {
+    challengePackCloseBtn.addEventListener("click", closeChallengePackPanel);
+  }
+  if (challengePackImportBtn) {
+    challengePackImportBtn.addEventListener("click", importChallengePack);
+  }
+  const createBtn = document.getElementById("challengePackCreateBtn");
+  if (createBtn) {
+    createBtn.addEventListener("click", () => {
+      if (typeof openChallengePackEditor === "function") {
+        openChallengePackEditor(null);
+      }
+    });
+  }
+}
+
+function migrateOldStorageIfNeeded() {
+  try {
+    const oldKey = "museum_challenge_packs";
+    const old = localStorage.getItem(oldKey);
+    if (old && !localStorage.getItem(CHALLENGE_PACK_STORAGE_KEY)) {
+      localStorage.setItem(CHALLENGE_PACK_STORAGE_KEY, old);
+    }
+  } catch (e) {}
 }
 
 init();
