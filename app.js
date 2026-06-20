@@ -246,7 +246,7 @@ function evaluateObjectives(levelIndex) {
   const desc = levelDescriptions[levelIndex];
 
   if (objectives.includes(OBJECTIVE_TYPES.NO_HINTS)) {
-    if (gameplayMetrics.hintsUsedTotal === 0) {
+    if (gameplayMetrics.objectiveHintsUsed === 0) {
       completed.push(OBJECTIVE_TYPES.NO_HINTS);
     }
   }
@@ -258,13 +258,13 @@ function evaluateObjectives(levelIndex) {
   }
 
   if (objectives.includes(OBJECTIVE_TYPES.NO_ALERT)) {
-    if (gameplayMetrics.maxAlertLevel === 0) {
+    if (gameplayMetrics.objectiveMaxAlertLevel === 0) {
       completed.push(OBJECTIVE_TYPES.NO_ALERT);
     }
   }
 
   if (objectives.includes(OBJECTIVE_TYPES.ALL_KEYS)) {
-    if (gameplayMetrics.totalKeysInLevel > 0 && gameplayMetrics.keysCollected >= gameplayMetrics.totalKeysInLevel) {
+    if (gameplayMetrics.totalKeysInLevel > 0 && gameplayMetrics.objectiveKeysCollected >= gameplayMetrics.totalKeysInLevel) {
       completed.push(OBJECTIVE_TYPES.ALL_KEYS);
     }
   }
@@ -514,7 +514,9 @@ let gameplayMetrics = {
   hintsUsedTotal: 0,
   currentActions: 0,
   maxAlertLevel: 0,
-  keysCollected: 0,
+  objectiveHintsUsed: 0,
+  objectiveMaxAlertLevel: 0,
+  objectiveKeysCollected: 0,
   totalKeysInLevel: 0
 };
 
@@ -523,7 +525,9 @@ function resetGameplayMetrics() {
   gameplayMetrics.hintsUsedTotal = 0;
   gameplayMetrics.currentActions = 0;
   gameplayMetrics.maxAlertLevel = 0;
-  gameplayMetrics.keysCollected = 0;
+  gameplayMetrics.objectiveHintsUsed = 0;
+  gameplayMetrics.objectiveMaxAlertLevel = 0;
+  gameplayMetrics.objectiveKeysCollected = 0;
   gameplayMetrics.totalKeysInLevel = 0;
 }
 
@@ -532,7 +536,9 @@ function initObjectiveTracking() {
     gameplayMetrics.totalKeysInLevel = state.level.keys.length;
   }
   gameplayMetrics.maxAlertLevel = state ? state.alertLevel || 0 : 0;
-  gameplayMetrics.keysCollected = 0;
+  gameplayMetrics.objectiveMaxAlertLevel = state ? state.alertLevel || 0 : 0;
+  gameplayMetrics.objectiveHintsUsed = 0;
+  gameplayMetrics.objectiveKeysCollected = 0;
 }
 
 function cloneLevel(index) {
@@ -1104,6 +1110,9 @@ function updateGlobalAlertLevel() {
   if (maxAlert > gameplayMetrics.maxAlertLevel) {
     gameplayMetrics.maxAlertLevel = maxAlert;
   }
+  if (maxAlert > gameplayMetrics.objectiveMaxAlertLevel) {
+    gameplayMetrics.objectiveMaxAlertLevel = maxAlert;
+  }
 }
 
 function decayAlertLevels() {
@@ -1363,6 +1372,7 @@ function loadLevel(index, preserveMetrics) {
     initObjectiveTracking();
   } else {
     gameplayMetrics.currentActions = 0;
+    initObjectiveTracking();
   }
   recordHistory("开局");
   render();
@@ -1624,7 +1634,7 @@ function pickKey() {
   if (key) {
     key.taken = true;
     state.keys += 1;
-    gameplayMetrics.keysCollected += 1;
+    gameplayMetrics.objectiveKeysCollected += 1;
     addLog("捡到一枚展柜侧门钥匙。");
   }
 }
@@ -3269,6 +3279,7 @@ function requestHint() {
     return;
   }
   gameplayMetrics.hintsUsedTotal += 1;
+  gameplayMetrics.objectiveHintsUsed += 1;
 
   addLog("正在分析局势，计算最优路线...");
   render();
@@ -3734,6 +3745,9 @@ function updateStatsOnWin(levelIndex) {
   }
 
   const ls = achievementState.levels[key];
+  if (!Array.isArray(ls.completedObjectives)) {
+    ls.completedObjectives = [];
+  }
   ls.wins += 1;
   ls.totalKeysUsed += stats.keysUsed;
 
@@ -3778,7 +3792,8 @@ function updateStatsOnFail(levelIndex, reason) {
         bestActions: null,
         totalKeysUsed: 0,
         wins: 0,
-        noWait: false
+        noWait: false,
+        completedObjectives: []
       };
     }
   }
