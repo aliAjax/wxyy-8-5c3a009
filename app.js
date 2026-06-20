@@ -4835,10 +4835,12 @@ function unifiedSolveLevel(level, options = {}) {
   function getGuardVisionUnified(guardsList, screenList, visionReduced) {
     const vision = new Set();
     const screenSet = new Set(screenList.map(s => pointKey(s)));
-    const maxRange = visionReduced ? 1 : 2;
     guardsList.forEach((guard) => {
       const pos = guard.pos;
       vision.add(pointKey(pos));
+      const baseRange = visionReduced ? 1 : 2;
+      const alertBonus = Math.floor(guard.alertLevel / 2);
+      const maxRange = baseRange + alertBonus;
       let dx = 0, dy = 0;
       if (guard.state === 'investigate' && guard.investigateTarget) {
         dx = Math.sign(guard.investigateTarget.x - pos.x);
@@ -5104,6 +5106,12 @@ function unifiedSolveLevel(level, options = {}) {
     s.alertLevel = maxAlert;
   }
 
+  function recordOpenedDoorUnified(s, door) {
+    if (!s.openedDoors.some(d => samePoint(d, door))) {
+      s.openedDoors.push({ x: door.x, y: door.y, turn: s.turnCount });
+    }
+  }
+
   function processEndTurnUnified(curState, lastActionLabel) {
     const nextState = cloneSolverStateUnified(curState);
     emitSoundUnified(nextState, 0, nextState.pos, "等待");
@@ -5159,7 +5167,7 @@ function unifiedSolveLevel(level, options = {}) {
       if (wallSet.has(pk)) continue;
 
       const ns = cloneSolverStateUnified(cur);
-      let actionLabel = `向${dirName}`;
+      let actionLabel = dirName;
       let soundLoudness = 1;
 
       const screenIdx = ns.screens.findIndex(sc => samePoint(sc, newPos));
@@ -5181,7 +5189,7 @@ function unifiedSolveLevel(level, options = {}) {
         if (ns.keys <= 0) continue;
         ns.keys -= 1;
         ns.doorsOpen[doorIdx] = true;
-        ns.openedDoors.push({ x: nx, y: ny, turn: ns.turnCount });
+        recordOpenedDoorUnified(ns, { x: nx, y: ny });
         actionLabel = "开门+" + actionLabel;
         soundLoudness = 3;
       }
@@ -5206,7 +5214,13 @@ function unifiedSolveLevel(level, options = {}) {
           ns.plateTriggered[pi] = true;
           for (const td of plate.targetDoors) {
             const tdi = doors.findIndex(d => samePoint(d, td));
-            if (tdi >= 0) ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
+            if (tdi >= 0) {
+              const wasClosed = !ns.doorsOpen[tdi];
+              ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
+              if (wasClosed && ns.doorsOpen[tdi]) {
+                recordOpenedDoorUnified(ns, doors[tdi]);
+              }
+            }
           }
           actionLabel += "+踩压板";
         } else if (!playerOn && ns.plateTriggered[pi]) {
@@ -5225,7 +5239,7 @@ function unifiedSolveLevel(level, options = {}) {
         }
       }
 
-      const vision = getFullVisionUnified(cur.guards, ns.screens, cur.visionReduced, cur.camerasDisabled, cur.lightsActive);
+      const vision = getFullVisionUnified(ns.guards, ns.screens, ns.visionReduced, ns.camerasDisabled, ns.lightsActive);
       if (vision.has(pk)) continue;
 
       const camVision = getCameraVisionUnified(ns.screens, cur.visionReduced, cur.camerasDisabled, ns.lightsActive);

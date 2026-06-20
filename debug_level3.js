@@ -279,10 +279,12 @@ function unifiedSolveLevel(level, options = {}) {
   function getGuardVisionUnified(guardsList, screenList, visionReduced) {
     const vision = new Set();
     const screenSet = new Set(screenList.map(s => pointKey(s)));
-    const maxRange = visionReduced ? 1 : 2;
     guardsList.forEach((guard) => {
       const pos = guard.pos;
       vision.add(pointKey(pos));
+      const baseRange = visionReduced ? 1 : 2;
+      const alertBonus = Math.floor(guard.alertLevel / 2);
+      const maxRange = baseRange + alertBonus;
       let dx = 0, dy = 0;
       if (guard.state === 'investigate' && guard.investigateTarget) {
         dx = Math.sign(guard.investigateTarget.x - pos.x);
@@ -471,6 +473,20 @@ function unifiedSolveLevel(level, options = {}) {
     }
   }
 
+  function updateGlobalAlertLevelUnified(s) {
+    let maxAlert = 0;
+    s.guards.forEach((guard) => {
+      maxAlert = Math.max(maxAlert, guard.alertLevel);
+    });
+    s.alertLevel = maxAlert;
+  }
+
+  function recordOpenedDoorUnified(s, door) {
+    if (!s.openedDoors.some(d => samePoint(d, door))) {
+      s.openedDoors.push({ x: door.x, y: door.y, turn: s.turnCount });
+    }
+  }
+
   function cloneSolverStateUnified(s) {
     return {
       pos: { ...s.pos },
@@ -576,7 +592,7 @@ function unifiedSolveLevel(level, options = {}) {
       if (wallSet.has(pk)) continue;
 
       const ns = cloneSolverStateUnified(cur);
-      let actionLabel = `向${dirName}`;
+      let actionLabel = dirName;
       let soundLoudness = 1;
 
       const screenIdx = ns.screens.findIndex(sc => samePoint(sc, newPos));
@@ -598,13 +614,10 @@ function unifiedSolveLevel(level, options = {}) {
         if (ns.keys <= 0) continue;
         ns.keys -= 1;
         ns.doorsOpen[doorIdx] = true;
-        ns.openedDoors.push({ x: nx, y: ny, turn: ns.turnCount });
+        recordOpenedDoorUnified(ns, { x: nx, y: ny });
         actionLabel = "开门+" + actionLabel;
         soundLoudness = 3;
       }
-
-      const vision = getFullVisionUnified(cur.guards, ns.screens, cur.visionReduced, cur.camerasDisabled, cur.lightsActive);
-      if (vision.has(pk)) continue;
 
       for (let i = 0; i < keyItems.length; i++) {
         if (!ns.keysTaken[i] && keyItems[i].x === nx && keyItems[i].y === ny) {
@@ -623,7 +636,13 @@ function unifiedSolveLevel(level, options = {}) {
           ns.plateTriggered[pi] = true;
           for (const td of plate.targetDoors) {
             const tdi = doors.findIndex(d => samePoint(d, td));
-            if (tdi >= 0) ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
+            if (tdi >= 0) {
+              const wasClosed = !ns.doorsOpen[tdi];
+              ns.doorsOpen[tdi] = !ns.doorsOpen[tdi];
+              if (wasClosed && ns.doorsOpen[tdi]) {
+                recordOpenedDoorUnified(ns, doors[tdi]);
+              }
+            }
           }
           actionLabel += "+踩压板";
         } else if (!playerOn && ns.plateTriggered[pi]) {
@@ -642,7 +661,10 @@ function unifiedSolveLevel(level, options = {}) {
         }
       }
 
-      emitSoundUnified(ns.guards, soundLoudness, ns.pos, dirName);
+      emitSoundUnified(ns, soundLoudness, ns.pos, dirName);
+
+      const vision = getFullVisionUnified(ns.guards, ns.screens, ns.visionReduced, ns.camerasDisabled, ns.lightsActive);
+      if (vision.has(pk)) continue;
 
       const camVision = getCameraVisionUnified(ns.screens, cur.visionReduced, cur.camerasDisabled, ns.lightsActive);
       if (camVision.has(pk)) {
@@ -658,9 +680,9 @@ function unifiedSolveLevel(level, options = {}) {
 
       if (ns.ap <= 0) {
         const nextState = cloneSolverStateUnified(ns);
-        emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+        emitSoundUnified(nextState, 0, nextState.pos, "等待");
         advanceLightAndCameraEffectsUnified(nextState);
-        decayAlertLevelsUnified(nextState.guards);
+        decayAlertLevelsUnified(nextState);
         
         let maxGuardAlert = 0;
         nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
@@ -726,14 +748,14 @@ function unifiedSolveLevel(level, options = {}) {
         ns.fixed[i] = true;
         ns.ap -= 1;
 
-        emitSoundUnified(ns.guards, 2, ns.pos, "修复");
+        emitSoundUnified(ns, 2, ns.pos, "修复");
 
         ns.path.push({ ...ns.pos });
         ns.actionLabels = ns.actionLabels || [...ns.actions];
         ns.actionLabels.push("修复展柜");
         ns.actions = ns.actionLabels;
 
-        const vision = getFullVisionUnified(cur.guards, ns.screens, cur.visionReduced, cur.camerasDisabled, cur.lightsActive);
+        const vision = getFullVisionUnified(ns.guards, ns.screens, ns.visionReduced, ns.camerasDisabled, ns.lightsActive);
         const curPk = pointKey(ns.pos);
         if (vision.has(curPk)) continue;
 
@@ -741,13 +763,14 @@ function unifiedSolveLevel(level, options = {}) {
         if (camVision.has(curPk)) {
           ns.alertLevel = Math.min(3, ns.alertLevel + 1);
           if (ns.alertLevel >= 3) continue;
+          updateGlobalAlertLevelUnified(ns);
         }
 
         if (ns.ap <= 0) {
           const nextState = cloneSolverStateUnified(ns);
-          emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+          emitSoundUnified(nextState, 0, nextState.pos, "等待");
           advanceLightAndCameraEffectsUnified(nextState);
-          decayAlertLevelsUnified(nextState.guards);
+          decayAlertLevelsUnified(nextState);
           
           let maxGuardAlert = 0;
           nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
@@ -808,9 +831,9 @@ function unifiedSolveLevel(level, options = {}) {
 
     {
       const nextState = cloneSolverStateUnified(cur);
-      emitSoundUnified(nextState.guards, 0, nextState.pos, "等待");
+      emitSoundUnified(nextState, 0, nextState.pos, "等待");
       advanceLightAndCameraEffectsUnified(nextState);
-      decayAlertLevelsUnified(nextState.guards);
+      decayAlertLevelsUnified(nextState);
       
       let maxGuardAlert = 0;
       nextState.guards.forEach(g => { maxGuardAlert = Math.max(maxGuardAlert, g.alertLevel); });
