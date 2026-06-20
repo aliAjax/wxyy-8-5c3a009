@@ -1,0 +1,28 @@
+{
+  "name": "museum-night-restorer",
+  "version": "1.0.0",
+  "description": "博物馆夜间修复师 - 纯前端回合制解谜小游戏",
+  "main": "index.html",
+  "scripts": {
+    "start": "npm run preview",
+    "preview": "python3 -m http.server 8799",
+    "serve": "node scripts/serve.js",
+    "test": "npm run test:static && npm run test:solver && npm run test:smoke",
+    "test:static": "node test_solver_simple.js",
+    "test:solver": "node test_solver.js",
+    "test:solver:slow": "node test_solver.js --slow",
+    "test:smoke": "node tests/smoke.js",
+    "test:smoke:debug": "HEADLESS=false node tests/smoke.js"
+  },
+  "keywords": [
+    "game",
+    "puzzle",
+    "html5",
+    "vanilla-js"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "puppeteer": "^22.0.0"
+  }
+}
