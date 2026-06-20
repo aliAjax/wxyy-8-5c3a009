@@ -693,6 +693,8 @@ function unifiedSolveLevel(level, options = {}) {
         nextState.alertLevel = maxGuardAlert;
         
         nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
+        updateGlobalAlertLevelUnified(nextState);
+        if (nextState.alertLevel >= 3) continue;
 
         const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
         const curPk = pointKey(ns.pos);
@@ -781,6 +783,8 @@ function unifiedSolveLevel(level, options = {}) {
           nextState.alertLevel = maxGuardAlert;
           
           nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
+          updateGlobalAlertLevelUnified(nextState);
+          if (nextState.alertLevel >= 3) continue;
 
           const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
           if (!nextVision.has(curPk)) {
@@ -844,6 +848,8 @@ function unifiedSolveLevel(level, options = {}) {
       nextState.alertLevel = maxGuardAlert;
       
       nextState.guards.forEach(g => moveGuardUnified(g, nextState.openedDoors));
+      updateGlobalAlertLevelUnified(nextState);
+      if (nextState.alertLevel >= 3) continue;
 
       const nextVision = getFullVisionUnified(nextState.guards, nextState.screens, nextState.visionReduced, nextState.camerasDisabled, nextState.lightsActive);
       const curPk = pointKey(cur.pos);

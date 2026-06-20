@@ -479,73 +479,90 @@ console.log('\n4. 熄灯影响摄像头规则测试');
 
 console.log('\n5. Trace 守卫追踪开门痕迹测试');
 (function testTraceGuard() {
-  test('开门后 openedDoors 会记录痕迹', () => {
-    const lv = {
-      name: "Trace-开门留痕",
+  test('开门后 openedDoors 会记录痕迹（trace 守卫检测验证）', () => {
+    const lvClosed = {
+      name: "Trace-开门留痕-门关",
       walls: ["3,0", "3,1", "3,2", "3,4", "3,5", "3,6"],
       doors: [{ x: 3, y: 3, open: false }],
       keys: [{ x: 1, y: 3 }],
       exhibits: [{ x: 5, y: 3, fixed: false }],
       player: { x: 0, y: 3 },
-      guards: [],
-      exit: { x: 5, y: 3 }
-    };
-    const result = solveQuiet(lv, { maxIterations: 50000, mode: 'full' });
-    assert(result.solvable, '应该能找到解');
-    const hasOpenDoor = result.actions.some(a => a.includes('开门'));
-    assert(hasOpenDoor, '应包含开门动作');
-  });
-
-  test('trace 守卫初始状态为 patrol', () => {
-    const startState = {
-      player: { x: 0, y: 0 },
-      keys: 0,
-      keysTaken: [],
-      doorsOpen: [],
-      fixed: [],
       guards: [
-        {
-          path: [{ x: 4, y: 4 }, { x: 4, y: 4 }],
-          originalPath: [{ x: 4, y: 4 }, { x: 4, y: 4 }],
-          step: 0,
-          originalStep: 0,
-          pos: { x: 4, y: 4 },
-          behavior: "trace",
-          direction: 1,
-          state: "patrol",
-          investigateTarget: null,
-          investigateTimer: 0,
-          traceTarget: null,
-          tracePath: [],
-          alertLevel: 0,
-          hearingRange: 0,
-          id: 0
-        }
+        { path: [{ x: 3, y: 2 }, { x: 4, y: 2 }], step: 0, behavior: "trace", hearingRange: 0 }
       ],
-      openedDoors: [],
+      exit: { x: 6, y: 3 },
+      mechanisms: { pressurePlates: [], screens: [], lights: [], cameras: [] }
+    };
+
+    const result1 = solveQuiet(lvClosed, { maxIterations: 200000, mode: 'full' });
+    assert(!result1.solvable, '必须开门时，trace 守卫在门附近（距离1-2格），会检测到开门痕迹进入追踪，警戒升高导致玩家无法通关');
+
+    const lvOpen = deepClone(lvClosed);
+    lvOpen.keys = [];
+    const openState = {
+      player: { x: 0, y: 3 },
+      keys: 0,
+      keysTaken: [false],
+      doorsOpen: [true],
+      fixed: [false],
+      screens: [],
+      lightsActive: [],
+      visionReduced: false,
+      cameraShutdownTurns: 0,
+      alertLevel: 0,
       ap: 4,
       step: 0
     };
-    assertEq(startState.guards[0].state, 'patrol', 'trace 守卫初始状态应为 patrol');
-    assertEq(startState.openedDoors.length, 0, '初始状态没有开门痕迹');
+    const result2 = solveQuiet(lvOpen, { maxIterations: 200000, mode: 'full', startState: openState });
+    assert(result2.solvable, '门一开始就开着（通过startState设置），不需要开门就没有痕迹，trace 守卫不会追踪，玩家可以通关');
+    const hasFixAction = result2.actions.some(a => a.includes('修复展柜'));
+    assert(hasFixAction, '动作路径中应包含修复展柜动作');
   });
 
-  test('trace 守卫附近有开门痕迹会进入追踪状态', () => {
+  test('trace 守卫初始状态为 patrol（无开门痕迹时正常巡逻）', () => {
     const lv = {
-      name: "Trace-守卫追踪",
-      walls: ["4,0", "4,1", "4,2", "4,4", "4,5", "4,6"],
-      doors: [{ x: 4, y: 3, open: false }],
-      keys: [{ x: 0, y: 3 }],
-      exhibits: [{ x: 6, y: 0, fixed: false }],
-      player: { x: 0, y: 6 },
+      name: "Trace-初始patrol",
+      walls: [],
+      doors: [],
+      keys: [],
+      exhibits: [{ x: 7, y: 6, fixed: false }],
+      player: { x: 0, y: 0 },
       guards: [
-        { path: [{ x: 5, y: 4 }, { x: 5, y: 4 }], step: 0, behavior: "trace", hearingRange: 0 }
+        { path: [{ x: 3, y: 3 }, { x: 4, y: 3 }], step: 0, behavior: "trace", hearingRange: 0 }
       ],
-      exit: { x: 6, y: 6 }
+      exit: { x: 7, y: 6 },
+      mechanisms: { pressurePlates: [], screens: [], lights: [], cameras: [] }
     };
-    const result = solveQuiet(lv, { maxIterations: 200000, mode: 'full' });
-    assert(result.solvable, '虽然有 trace 守卫，但应能找到通关路径');
-    assert(result.actions.length > 0, '动作路径不应为空');
+    const result = solveQuiet(lv, { maxIterations: 50000, mode: 'full' });
+    assert(result.solvable, '无开门痕迹时，trace 守卫保持 patrol 正常巡逻，玩家可以绕开通关');
+    const hasFixAction = result.actions.some(a => a.includes('修复展柜'));
+    assert(hasFixAction, '动作路径中应包含修复展柜动作');
+  });
+
+  test('trace 守卫附近有开门痕迹会进入追踪状态（对比验证）', () => {
+    const lvWithDoor = {
+      name: "Trace-守卫追踪-有门",
+      walls: ["3,0", "3,1", "3,2", "3,4", "3,5", "3,6"],
+      doors: [{ x: 3, y: 3, open: false }],
+      keys: [{ x: 1, y: 3 }],
+      exhibits: [{ x: 5, y: 3, fixed: false }],
+      player: { x: 0, y: 3 },
+      guards: [
+        { path: [{ x: 3, y: 2 }, { x: 4, y: 2 }], step: 0, behavior: "trace", hearingRange: 0 }
+      ],
+      exit: { x: 6, y: 3 },
+      mechanisms: { pressurePlates: [], screens: [], lights: [], cameras: [] }
+    };
+
+    const result1 = solveQuiet(lvWithDoor, { maxIterations: 200000, mode: 'full' });
+    assert(!result1.solvable, '必须在 trace 守卫附近开门时，守卫会进入追踪状态，警戒升高，玩家无法通关');
+
+    const lvNoDoor = deepClone(lvWithDoor);
+    lvNoDoor.walls = lvNoDoor.walls.filter(w => w !== "3,3");
+    lvNoDoor.doors = [];
+    lvNoDoor.keys = [];
+    const result2 = solveQuiet(lvNoDoor, { maxIterations: 100000, mode: 'full' });
+    assert(result2.solvable, '没有门不需要开门时，trace 守卫保持巡逻，玩家可以通关');
   });
 })();
 
